@@ -1,0 +1,50 @@
+name: CodeWhale release watch
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare pinned and latest versions
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $installer = Get-Content scripts/install-codewhale.ps1 -Raw
+          if ($installer -notmatch '\[string\]\$Version = "([^"]+)"') {
+            throw "Could not find the pinned CodeWhale version."
+          }
+          $pinned = "v$($Matches[1].TrimStart('v'))"
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "DeepSeek-Tide-release-watch"
+          }
+          $latest = (Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/Hmbown/CodeWhale/releases/latest" `
+            -Headers $headers).tag_name
+          if ($latest -eq $pinned) {
+            Write-Host "CodeWhale is current: $pinned"
+            exit 0
+          }
+          $title = "CodeWhale update available: $latest"
+          $existing = gh issue list --repo $env:REPOSITORY --state open `
+            --search "`"$title`" in:title" --json number --jq "length"
+          if ($existing -eq "0") {
+            gh issue create --repo $env:REPOSITORY --title $title --body @"
+          DeepSeek-Tide currently pins **$pinned** while the latest official
+          CodeWhale release is **$latest**.
+
+          Update the pinned installer version, verify the official SHA-256
+          manifest, run the full test suite, and rebuild the Windows artifacts.
+          "@
+          }

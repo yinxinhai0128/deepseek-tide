@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepseek-tide"
+version = "0.2.0"
+description = "A clean-room terminal coding agent for DeepSeek-compatible APIs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "DeepSeek-Tide Contributors" }]
+dependencies = []
+
+[project.scripts]
+whaletide = "whaletide.cli:main"
+deepseek-tide = "whaletide.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
