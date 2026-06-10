@@ -62,6 +62,7 @@ interface Window {
           cached_tokens: number | null;
           reasoning_tokens: number | null;
           cost_usd: number | null;
+          cost_cny: number | null;
           turns: number;
         };
       };
@@ -100,12 +101,24 @@ interface Window {
         workspace: string;
         error?: string | null;
       };
+      check?: {
+        valid: boolean | null;
+        available?: boolean;
+        balance?: string | null;
+        currency?: string | null;
+        error?: string;
+      };
       error?: string | null;
     }>;
     clearApiKey(): Promise<{ ok: boolean }>;
     listFiles(workspace: string): Promise<FileNode[]>;
     gitStatus(workspace: string): Promise<string>;
     gitDiff(workspace: string): Promise<string>;
+    openFolder(path?: string): Promise<{ ok: boolean; error?: string | null }>;
+    openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
+    resetUsage(): Promise<{ ok: boolean }>;
+    canUndo(): Promise<{ canUndo: boolean }>;
+    undoLastChange(): Promise<{ ok: boolean; error?: string }>;
     startTurn(payload: {
       workspace: string;
       prompt: string;

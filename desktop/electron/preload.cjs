@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld("whale", {
   listFiles: (workspace) => ipcRenderer.invoke("workspace:files", workspace),
   gitStatus: (workspace) => ipcRenderer.invoke("git:status", workspace),
   gitDiff: (workspace) => ipcRenderer.invoke("git:diff", workspace),
+  openFolder: (path) => ipcRenderer.invoke("workspace:reveal", path),
+  openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
+  resetUsage: () => ipcRenderer.invoke("usage:reset"),
+  canUndo: () => ipcRenderer.invoke("snapshot:status"),
+  undoLastChange: () => ipcRenderer.invoke("snapshot:undo"),
   startTurn: (payload) => ipcRenderer.invoke("agent:start", payload),
   stopTurn: () => ipcRenderer.invoke("agent:stop"),
   onAgentEvent: (listener) => {

@@ -1,5 +1,6 @@
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const net = require("net");
 const path = require("path");
@@ -281,6 +282,23 @@ function readDesktopUsage() {
   }
 }
 
+// DeepSeek 官方价格（元 / 百万 token，2026-04-26 调价后）：未命中输入 / 命中输入 / 输出。
+const MODEL_PRICING_CNY = {
+  "deepseek-v4-flash": { input: 1, inputCached: 0.02, output: 2 },
+  "deepseek-v4-pro": { input: 3, inputCached: 0.025, output: 6 }
+};
+
+// 引擎不暴露每轮真实缓存命中数。缓存命中主要发生在单轮 agent 内部循环里——同一个
+// 大前缀被反复发送，第二次起即命中。编码 agent 的实际命中率通常很高，这里按 90%
+// 估算，得到的是近似真实花费（非账单），而不是最贵的未命中上限。
+const CACHE_HIT_RATE = 0.9;
+
+function estimateCostCny(inputTokens, outputTokens, model) {
+  const price = MODEL_PRICING_CNY[model] || MODEL_PRICING_CNY["deepseek-v4-flash"];
+  const effectiveInput = CACHE_HIT_RATE * price.inputCached + (1 - CACHE_HIT_RATE) * price.input;
+  return (Number(inputTokens) * effectiveInput + Number(outputTokens) * price.output) / 1_000_000;
+}
+
 function recordDesktopUsage(meta) {
   if (!meta || typeof meta !== "object") return;
   const usage = readDesktopUsage();
@@ -304,6 +322,7 @@ async function runtimePerformance(model = "deepseek-v4-flash") {
       cached_tokens: null,
       reasoning_tokens: null,
       cost_usd: null,
+      cost_cny: estimateCostCny(desktopUsage.input_tokens, desktopUsage.output_tokens, model),
       turns: desktopUsage.turns
     }
   };
@@ -449,17 +468,27 @@ function registerIpc() {
       };
     }
     const status = await runtimeStatus();
-    return {
-      ok: status.authenticated,
-      status,
-      error: status.authenticated
-        ? null
-        : "API key 已提交，但 CodeWhale 未能读取保存后的凭据。请检查用户目录写入权限。"
-    };
+    if (!status.authenticated) {
+      return {
+        ok: false,
+        status,
+        error: "API key 已提交，但 CodeWhale 未能读取保存后的凭据。请检查用户目录写入权限。"
+      };
+    }
+    const check = await validateDeepSeekKey(apiKey.trim());
+    return { ok: true, status, check };
   });
   ipcMain.handle("auth:clear", async () => {
     const result = await runCodeWhale(["auth", "clear", "--provider", "deepseek"]);
     return { ok: result.code === 0 };
+  });
+  ipcMain.handle("usage:reset", async () => {
+    try {
+      fs.rmSync(usageStatePath(), { force: true });
+    } catch {
+      /* 文件不存在或删除失败都视为已清零 */
+    }
+    return { ok: true };
   });
   ipcMain.handle("workspace:files", async () => {
     const base = workspace;
@@ -512,6 +541,31 @@ function registerIpc() {
     });
     return result;
   });
+  ipcMain.handle("shell:open-external", async (_event, url) => {
+    try {
+      const parsed = new URL(String(url));
+      const host = parsed.hostname.toLowerCase();
+      const allowed =
+        parsed.protocol === "https:" &&
+        (host === "deepseek.com" || host.endsWith(".deepseek.com"));
+      if (!allowed) return { ok: false, error: "仅允许打开 DeepSeek 官方页面" };
+      await shell.openExternal(parsed.toString());
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "无效链接" };
+    }
+  });
+  ipcMain.handle("workspace:reveal", async (_event, target) => {
+    const dir = typeof target === "string" && target ? target : workspace;
+    const error = await shell.openPath(dir);
+    return { ok: !error, error: error || null };
+  });
+  ipcMain.handle("snapshot:status", async () => {
+    return { canUndo: await hasSnapshot(workspace) };
+  });
+  ipcMain.handle("snapshot:undo", async () => {
+    return undoLastSnapshot(workspace);
+  });
   ipcMain.handle("agent:start", async (_event, payload) => {
     if (activeAgent) return { ok: false, error: "已有任务正在运行" };
     const target = workspace;
@@ -530,6 +584,9 @@ function registerIpc() {
     args.push("--output-format", "stream-json");
     if (payload.sessionId) args.push("--resume", payload.sessionId);
     args.push(payload.prompt);
+
+    // 开跑前快照当前工作区，供"一键撤销"还原。尽力而为，不阻断任务。
+    await snapshotWorkspace(target);
 
     const child = spawn(codeWhaleBinary(), args, {
       cwd: target,
@@ -561,6 +618,134 @@ function registerIpc() {
     terminateProcessTree(activeAgent);
     return { ok: true };
   });
+}
+
+// ---- 影子 git 快照（撤销 AI 改动）----
+// 在应用数据目录维护一个独立的 git 仓库（GIT_DIR），工作树指向用户工作区。
+// 绝不创建/修改用户自己的 .git，对非 git 项目同样可用。
+
+const SNAPSHOT_EXCLUDES = [
+  ".git/",
+  "node_modules/",
+  "dist/",
+  "build/",
+  "release/",
+  "vendor/",
+  "__pycache__/",
+  ".npm-cache/",
+  ".electron-builder-cache/",
+  ".localappdata/",
+  ".cache/",
+  "*.log"
+];
+
+// 用 DeepSeek 余额接口真实验证 key:既验有效性,又查余额(不耗 token)。
+async function validateDeepSeekKey(apiKey) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch("https://api.deepseek.com/user/balance", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal
+    });
+    if (response.status === 401 || response.status === 403) {
+      return { valid: false, error: "DeepSeek 拒绝了这个 key(无效或已撤销)" };
+    }
+    if (!response.ok) {
+      return { valid: null, error: `暂时无法验证(DeepSeek 返回 ${response.status})` };
+    }
+    const data = await response.json();
+    const info = Array.isArray(data?.balance_infos) ? data.balance_infos[0] : null;
+    return {
+      valid: true,
+      available: Boolean(data?.is_available),
+      balance: info?.total_balance ?? null,
+      currency: info?.currency ?? null
+    };
+  } catch {
+    return { valid: null, error: "无法连接 DeepSeek(请检查网络)" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function shadowGitDir(ws) {
+  const id = crypto.createHash("sha1").update(path.resolve(ws)).digest("hex").slice(0, 16);
+  return path.join(app.getPath("userData"), "snapshots", id);
+}
+
+function runGitShadow(ws, args) {
+  return new Promise((resolve) => {
+    const child = spawn("git", args, {
+      cwd: ws,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        GIT_DIR: shadowGitDir(ws),
+        GIT_WORK_TREE: ws,
+        GIT_CONFIG_NOSYSTEM: "1"
+      }
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("error", (error) => resolve({ code: -1, stdout, stderr: String(error) }));
+  });
+}
+
+async function ensureShadowGit(ws) {
+  const dir = shadowGitDir(ws);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    await runGitShadow(ws, ["init"]);
+    const infoDir = path.join(dir, "info");
+    fs.mkdirSync(infoDir, { recursive: true });
+    fs.writeFileSync(path.join(infoDir, "exclude"), SNAPSHOT_EXCLUDES.join("\n") + "\n", {
+      encoding: "utf8"
+    });
+  }
+}
+
+// 在每轮 AI 任务开始前调用：把当前工作区状态提交为一个快照。尽力而为，失败不阻断任务。
+async function snapshotWorkspace(ws) {
+  try {
+    await ensureShadowGit(ws);
+    await runGitShadow(ws, ["add", "-A"]);
+    const result = await runGitShadow(ws, [
+      "-c",
+      "user.email=snapshot@deepseek-tide.local",
+      "-c",
+      "user.name=DeepSeek-Tide",
+      "commit",
+      "--allow-empty",
+      "--no-gpg-sign",
+      "-m",
+      `snapshot ${new Date().toISOString()}`
+    ]);
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSnapshot(ws) {
+  if (!fs.existsSync(shadowGitDir(ws))) return false;
+  const result = await runGitShadow(ws, ["rev-parse", "--verify", "HEAD"]);
+  return result.code === 0;
+}
+
+// 撤销 AI 上一次的改动：把工作区还原到最近一次快照（上一轮开始前的状态）。
+async function undoLastSnapshot(ws) {
+  if (!(await hasSnapshot(ws))) return { ok: false, error: "没有可撤销的快照" };
+  const reset = await runGitShadow(ws, ["reset", "--hard", "HEAD"]);
+  if (reset.code !== 0) {
+    return { ok: false, error: reset.stderr.trim() || "还原失败" };
+  }
+  await runGitShadow(ws, ["clean", "-fd"]);
+  return { ok: true };
 }
 
 function createWindow() {

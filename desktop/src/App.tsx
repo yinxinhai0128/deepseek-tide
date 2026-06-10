@@ -21,7 +21,16 @@ import {
   IconFile,
   IconFolder,
   IconFolderOpen,
+  IconFolderPlus,
+  IconExternalLink,
+  IconHistory,
+  IconDots,
+  IconPin,
+  IconArchive,
+  IconArchiveOff,
+  IconPencil,
   IconGitBranch,
+  IconArrowBackUp,
   IconGauge,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
@@ -58,6 +67,8 @@ type Thread = {
   sessionId?: string;
   messages: Message[];
   updatedAt: number;
+  pinned?: boolean;
+  archived?: boolean;
 };
 
 const uid = () => crypto.randomUUID();
@@ -69,6 +80,28 @@ function loadThreads(): Thread[] {
     const serialized =
       localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) || "[]";
     const value = JSON.parse(serialized);
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+type Project = {
+  path: string;
+  name: string;
+  pinned?: boolean;
+  addedAt: number;
+};
+
+const STORAGE_KEY_PROJECTS = "deepseek-tide.desktop.projects.v1";
+
+function projectName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function loadProjects(): Project[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || "[]");
     return Array.isArray(value) ? value : [];
   } catch {
     return [];
@@ -223,7 +256,7 @@ function ToolActivity({ events }: { events: AgentEvent[] }) {
   );
 }
 
-function ChatMessage({ message }: { message: Message }) {
+function ChatMessage({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
   if (message.role === "user") {
     return (
       <article className="message message-user">
@@ -258,12 +291,14 @@ function ChatMessage({ message }: { message: Message }) {
           <div className="markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
-        ) : (
+        ) : isStreaming ? (
           <div className="thinking-line">
             <span />
             <span />
             <span />
           </div>
+        ) : message.events?.length ? null : (
+          <div className="assistant-empty">（本轮没有文本回复）</div>
         )}
       </div>
     </article>
@@ -281,22 +316,49 @@ function ApiKeyDialog({
 }) {
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setError("");
+      setSuccess("");
+      setKey("");
+    }
+  }, [open]);
+
   if (!open) return null;
 
   async function save(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setSuccess("");
     try {
       const result = await window.whale.saveApiKey(key);
       if (!result.ok || !result.status?.authenticated) {
         setError(result.error || "保存失败，请重试");
         return;
       }
-      setKey("");
+      const check = result.check;
+      if (check?.valid === false) {
+        setError(check.error || "这个 API key 无效，请检查后重新粘贴。");
+        return;
+      }
       onSaved(result.status);
-      onClose();
+      if (check?.valid === true && check.available === false) {
+        setError(
+          `key 有效，但账户余额不足（${check.balance ?? 0} ${check.currency ?? ""}）。请先到 DeepSeek 充值，再发任务。`
+        );
+        return;
+      }
+      const balanceText =
+        check?.valid && check.balance != null
+          ? `，余额 ${check.balance} ${check.currency ?? ""}`
+          : "";
+      setSuccess(`✅ 连接成功${balanceText}`);
+      setKey("");
+      window.setTimeout(onClose, 1400);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败，请重试");
     } finally {
@@ -316,9 +378,66 @@ function ApiKeyDialog({
             <IconX size={18} />
           </button>
         </div>
-        <p>
-          密钥通过标准输入交给 CodeWhale，并保存到用户级凭证存储。DeepSeek-Tide
-          不会把它写进项目或浏览器存储。
+        <p className="onboard-intro">
+          DeepSeek-Tide 需要一个 DeepSeek 的 <strong>API Key</strong> 才能干活。还没有的话，照下面 4
+          步几分钟就能搞定 👇
+        </p>
+        <ol className="onboard-steps">
+          <li>
+            <div className="onboard-step-text">
+              <strong>① 注册 / 登录 DeepSeek</strong>
+              <span>用手机号注册一个账号</span>
+            </div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() =>
+                void window.whale.openExternal("https://platform.deepseek.com/sign_in")
+              }
+            >
+              打开
+              <IconExternalLink size={14} />
+            </button>
+          </li>
+          <li>
+            <div className="onboard-step-text">
+              <strong>② 实名认证 + 充值</strong>
+              <span>登录后在平台完成实名，左侧菜单充值（新账号必须充值才能用，最低 1 元）</span>
+            </div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => void window.whale.openExternal("https://platform.deepseek.com")}
+            >
+              打开
+              <IconExternalLink size={14} />
+            </button>
+          </li>
+          <li>
+            <div className="onboard-step-text">
+              <strong>③ 创建 API Key</strong>
+              <span>点“创建”，复制生成的 key（只显示一次，务必复制好）</span>
+            </div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() =>
+                void window.whale.openExternal("https://platform.deepseek.com/api_keys")
+              }
+            >
+              打开
+              <IconExternalLink size={14} />
+            </button>
+          </li>
+          <li>
+            <div className="onboard-step-text">
+              <strong>④ 粘贴到下面 → 保存</strong>
+              <span>把复制的 key 粘进输入框，点“保存并连接”</span>
+            </div>
+          </li>
+        </ol>
+        <p className="onboard-security">
+          🔒 你的 key 只存在这台电脑（交给 CodeWhale 的本地凭证库），DeepSeek-Tide 绝不上传，也不写进项目或浏览器。
         </p>
         <label className="field-label" htmlFor="api-key">
           API Key
@@ -329,10 +448,15 @@ function ApiKeyDialog({
           className="text-field"
           type="password"
           value={key}
-          onChange={(event) => setKey(event.target.value)}
+          onChange={(event) => {
+            setKey(event.target.value);
+            if (error) setError("");
+            if (success) setSuccess("");
+          }}
           placeholder="sk-..."
         />
         {error ? <div className="form-error">{error}</div> : null}
+        {success ? <div className="form-success">{success}</div> : null}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             取消
@@ -380,13 +504,76 @@ export default function App() {
   const modelRef = useRef(model);
   modelRef.current = model;
   const stickToBottomRef = useRef(true);
+  const scrollPositionsRef = useRef<Map<string, number>>(new Map());
+  const prevActiveIdRef = useRef(activeId);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [menuThreadId, setMenuThreadId] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [projects, setProjects] = useState<Project[]>(() => loadProjects());
+  const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
+  const [projectRenamingPath, setProjectRenamingPath] = useState<string | null>(null);
+  const [projectRenameValue, setProjectRenameValue] = useState("");
   const activeThread = threads.find((thread) => thread.id === activeId);
 
   const groupedThreads = useMemo(
-    () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
+    () =>
+      threads
+        .filter((thread) => !thread.archived)
+        .sort((a, b) => {
+          if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+          return b.updatedAt - a.updatedAt;
+        }),
     [threads]
   );
+
+  const archivedThreads = useMemo(
+    () => threads.filter((thread) => thread.archived).sort((a, b) => b.updatedAt - a.updatedAt),
+    [threads]
+  );
+
+  const recentThreads = useMemo(
+    () =>
+      threads
+        .filter((thread) => !thread.archived && thread.messages.length > 0 && thread.id !== activeId)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 5),
+    [threads, activeId]
+  );
+
+  function openThread(thread: Thread) {
+    void window.whale.setWorkspace(thread.workspace).then((result) => {
+      if (result.ok && result.workspace) {
+        setActiveId(thread.id);
+        setWorkspace(result.workspace);
+      }
+    });
+  }
+
+  const threadsByProject = useMemo(() => {
+    const map = new Map<string, Thread[]>();
+    for (const thread of groupedThreads) {
+      const list = map.get(thread.workspace);
+      if (list) list.push(thread);
+      else map.set(thread.workspace, [thread]);
+    }
+    return map;
+  }, [groupedThreads]);
+
+  const visibleProjects = useMemo(() => {
+    const latestOf = (path: string) => {
+      const list = threadsByProject.get(path);
+      return list && list.length ? Math.max(...list.map((thread) => thread.updatedAt)) : 0;
+    };
+    return [...projects].sort((a, b) => {
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+      if ((a.path === workspace) !== (b.path === workspace)) return a.path === workspace ? -1 : 1;
+      return latestOf(b.path) - latestOf(a.path);
+    });
+  }, [projects, threadsByProject, workspace]);
 
   useEffect(() => {
     Promise.all([window.whale.getWorkspace(), window.whale.getStatus()]).then(
@@ -406,13 +593,40 @@ export default function App() {
     }
   }, [threads]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects.slice(0, 60)));
+    } catch {
+      /* 配额不足时忽略，不影响使用 */
+    }
+  }, [projects]);
+
+  // 迁移/补齐：把已有会话所属的文件夹、以及当前工作区,自动补进项目列表。
+  useEffect(() => {
+    setProjects((current) => {
+      const known = new Set(current.map((project) => project.path));
+      const additions: Project[] = [];
+      const consider = (path: string) => {
+        if (path && !known.has(path)) {
+          known.add(path);
+          additions.push({ path, name: projectName(path), addedAt: Date.now() });
+        }
+      };
+      for (const thread of threads) consider(thread.workspace);
+      if (workspace) consider(workspace);
+      return additions.length ? [...current, ...additions] : current;
+    });
+  }, [threads, workspace]);
+
   async function refreshPerformance() {
-    const [nextPerformance, nextUpdate] = await Promise.all([
-      window.whale.getPerformance(modelRef.current),
-      window.whale.checkForUpdates()
-    ]);
+    // 用量本地读取、很快,立即刷新;检查更新走 GitHub 网络可能很慢,放后台,
+    // 不让它拖住刷新(否则刷新看着像"点不动")。
+    const nextPerformance = await window.whale.getPerformance(modelRef.current);
     setPerformance(nextPerformance);
-    setUpdateState(nextUpdate);
+    void window.whale
+      .checkForUpdates()
+      .then(setUpdateState)
+      .catch(() => {});
   }
 
   useEffect(() => {
@@ -428,15 +642,52 @@ export default function App() {
     Promise.all([
       window.whale.listFiles(workspace),
       window.whale.gitStatus(workspace),
-      window.whale.gitDiff(workspace)
-    ]).then(([nextFiles, status, diff]) => {
+      window.whale.gitDiff(workspace),
+      window.whale.canUndo()
+    ]).then(([nextFiles, status, diff, undo]) => {
       setFiles(nextFiles);
       setGitStatus(status);
       setGitDiff(diff);
+      setCanUndo(undo.canUndo);
     });
   }, [workspace, running]);
 
+  async function undoLastChange() {
+    const confirmed = window.confirm(
+      "撤销 AI 上一次的改动？\n\n会把工作区文件还原到上一轮任务开始前的状态（不影响 node_modules 等大目录）。"
+    );
+    if (!confirmed) return;
+    const result = await window.whale.undoLastChange();
+    if (!result.ok) {
+      setAttachmentError(result.error || "撤销失败");
+      return;
+    }
+    const [nextFiles, status, diff, undo] = await Promise.all([
+      window.whale.listFiles(workspace),
+      window.whale.gitStatus(workspace),
+      window.whale.gitDiff(workspace),
+      window.whale.canUndo()
+    ]);
+    setFiles(nextFiles);
+    setGitStatus(status);
+    setGitDiff(diff);
+    setCanUndo(undo.canUndo);
+  }
+
   useEffect(() => {
+    const switched = prevActiveIdRef.current !== activeId;
+    prevActiveIdRef.current = activeId;
+    if (switched) {
+      // 切换任务：恢复该任务自己记住的滚动位置；从未看过的任务才落到底部。
+      const saved = scrollPositionsRef.current.get(activeId);
+      requestAnimationFrame(() => {
+        const element = scrollRef.current;
+        if (!element) return;
+        element.scrollTop = saved ?? element.scrollHeight;
+        handleConversationScroll();
+      });
+      return;
+    }
     if (!stickToBottomRef.current) return;
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
@@ -444,11 +695,12 @@ export default function App() {
         behavior: running ? "auto" : "smooth"
       });
     });
-  }, [activeThread?.messages, running]);
+  }, [activeThread?.messages, activeId, running]);
 
   function handleConversationScroll() {
     const element = scrollRef.current;
     if (!element) return;
+    scrollPositionsRef.current.set(activeId, element.scrollTop);
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
     const atBottom = distance < 80;
     stickToBottomRef.current = atBottom;
@@ -540,20 +792,15 @@ export default function App() {
           return { ...thread, messages, updatedAt: Date.now() };
         })
       );
-      if (event.type === "process_end" || event.type === "done" || event.type === "error") {
+      // 以"进程真正结束"为唯一准绳:进程还活着就保持"运行中",停止按钮一直可用,
+      // 避免中途的 done/error 事件提前关掉运行状态导致无法取消。
+      if (event.type === "process_end") {
         setRunning(false);
         activeRunThreadIdRef.current = null;
         window.setTimeout(() => void refreshPerformance(), 500);
       }
     });
   }, []);
-
-  async function pickWorkspace() {
-    const selected = await window.whale.chooseWorkspace();
-    if (!selected) return;
-    setWorkspace(selected);
-    createThread(selected);
-  }
 
   function createThread(target = workspace) {
     const thread: Thread = {
@@ -572,6 +819,116 @@ export default function App() {
     if (activeId === id) {
       setActiveId(threads.find((thread) => thread.id !== id)?.id || "");
     }
+    setMenuThreadId(null);
+  }
+
+  function renameThread(id: string) {
+    const current = threads.find((thread) => thread.id === id);
+    setRenamingId(id);
+    setRenameValue(current?.title || "");
+    setMenuThreadId(null);
+  }
+
+  function commitRename() {
+    const id = renamingId;
+    setRenamingId(null);
+    if (!id) return;
+    const next = renameValue.trim();
+    if (!next) return;
+    setThreads((value) => value.map((thread) => (thread.id === id ? { ...thread, title: next } : thread)));
+  }
+
+  function togglePin(id: string) {
+    setThreads((value) =>
+      value.map((thread) => (thread.id === id ? { ...thread, pinned: !thread.pinned } : thread))
+    );
+    setMenuThreadId(null);
+  }
+
+  function toggleArchive(id: string) {
+    const target = threads.find((thread) => thread.id === id);
+    const willArchive = !target?.archived;
+    setThreads((value) =>
+      value.map((thread) => (thread.id === id ? { ...thread, archived: willArchive } : thread))
+    );
+    if (willArchive && activeId === id) {
+      setActiveId(threads.find((thread) => thread.id !== id && !thread.archived)?.id || "");
+    }
+    setMenuThreadId(null);
+  }
+
+  useEffect(() => {
+    if (!menuThreadId) return;
+    const close = () => setMenuThreadId(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [menuThreadId]);
+
+  useEffect(() => {
+    if (!projectMenuPath) return;
+    const close = () => setProjectMenuPath(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [projectMenuPath]);
+
+  async function addProject() {
+    const selected = await window.whale.chooseWorkspace();
+    if (!selected) return;
+    setProjects((current) =>
+      current.some((project) => project.path === selected)
+        ? current
+        : [...current, { path: selected, name: projectName(selected), addedAt: Date.now() }]
+    );
+    setWorkspace(selected);
+  }
+
+  async function newChatInProject(path: string) {
+    const result = await window.whale.setWorkspace(path);
+    if (!result.ok || !result.workspace) return;
+    setWorkspace(result.workspace);
+    createThread(result.workspace);
+  }
+
+  function openProjectFolder(path: string) {
+    void window.whale.openFolder(path);
+    setProjectMenuPath(null);
+  }
+
+  function startProjectRename(path: string) {
+    const project = projects.find((item) => item.path === path);
+    setProjectRenamingPath(path);
+    setProjectRenameValue(project?.name || projectName(path));
+    setProjectMenuPath(null);
+  }
+
+  function commitProjectRename() {
+    const path = projectRenamingPath;
+    setProjectRenamingPath(null);
+    if (!path) return;
+    const next = projectRenameValue.trim();
+    if (!next) return;
+    setProjects((current) =>
+      current.map((project) => (project.path === path ? { ...project, name: next } : project))
+    );
+  }
+
+  function togglePinProject(path: string) {
+    setProjects((current) =>
+      current.map((project) =>
+        project.path === path ? { ...project, pinned: !project.pinned } : project
+      )
+    );
+    setProjectMenuPath(null);
+  }
+
+  function removeProject(path: string) {
+    setProjectMenuPath(null);
+    const confirmed = window.confirm(
+      "从列表移除这个项目？\n\n会一并移除它下面的所有对话记录（不会删除磁盘上的文件夹）。"
+    );
+    if (!confirmed) return;
+    setProjects((current) => current.filter((project) => project.path !== path));
+    setThreads((current) => current.filter((thread) => thread.workspace !== path));
   }
 
   async function submit() {
@@ -672,8 +1029,108 @@ export default function App() {
     .split(/\r?\n/)
     .filter((line) => /^[ MADRCU?!]{2}\s/.test(line));
 
+  function renderThreadRow(thread: Thread) {
+    return (
+      <div
+        key={thread.id}
+        role="button"
+        tabIndex={0}
+        className={clsx("thread-row", activeId === thread.id && "active")}
+        onClick={() => {
+          if (renamingId === thread.id) return;
+          void window.whale.setWorkspace(thread.workspace).then((result) => {
+            if (result.ok && result.workspace) {
+              setActiveId(thread.id);
+              setWorkspace(result.workspace);
+            }
+          });
+        }}
+      >
+        <span className="thread-status" />
+        <span className="thread-copy">
+          {renamingId === thread.id ? (
+            <input
+              className="thread-rename-input"
+              autoFocus
+              value={renameValue}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") commitRename();
+                if (event.key === "Escape") setRenamingId(null);
+              }}
+            />
+          ) : (
+            <strong>
+              {thread.pinned ? <IconPin size={12} className="pin-badge" /> : null}
+              {thread.title}
+            </strong>
+          )}
+          <small>{shortPath(thread.workspace)}</small>
+        </span>
+        <span
+          className="thread-menu-trigger"
+          role="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuThreadId(menuThreadId === thread.id ? null : thread.id);
+          }}
+        >
+          <IconDots size={16} />
+        </span>
+        {menuThreadId === thread.id ? (
+          <div className="thread-menu" onClick={(event) => event.stopPropagation()}>
+            <span
+              role="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                renameThread(thread.id);
+              }}
+            >
+              <IconPencil size={14} />
+              重命名
+            </span>
+            <span
+              role="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                togglePin(thread.id);
+              }}
+            >
+              <IconPin size={14} />
+              {thread.pinned ? "取消置顶" : "置顶"}
+            </span>
+            <span
+              role="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleArchive(thread.id);
+              }}
+            >
+              <IconArchive size={14} />
+              归档
+            </span>
+            <span
+              className="danger"
+              role="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                deleteThread(thread.id);
+              }}
+            >
+              <IconTrash size={14} />
+              移除
+            </span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <div className="app-shell">
+    <div className={clsx("app-shell", !leftOpen && "no-left", !rightOpen && "no-right")}>
       <ApiKeyDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -690,54 +1147,172 @@ export default function App() {
             <IconLayoutSidebarLeftCollapse size={17} />
           </button>
         </div>
-        <button className="new-thread-button" onClick={() => createThread()}>
-          <IconMessageCirclePlus size={17} />
-          新任务
-          <span>Ctrl N</span>
-        </button>
-        <button className="workspace-card" onClick={pickWorkspace}>
-          <IconFolder size={17} />
-          <span>
-            <small>当前工作区</small>
-            <strong>{shortPath(workspace)}</strong>
-          </span>
-          <IconChevronDown size={15} />
+        <button className="new-thread-button" onClick={() => void addProject()}>
+          <IconFolderPlus size={17} />
+          添加项目
         </button>
         <div className="sidebar-section-title">
-          <span>任务</span>
+          <span>项目</span>
           <IconSearch size={14} />
         </div>
         <div className="thread-list">
-          {groupedThreads.map((thread) => (
-            <button
-              key={thread.id}
-              className={clsx("thread-row", activeId === thread.id && "active")}
-              onClick={() => {
-                void window.whale.setWorkspace(thread.workspace).then((result) => {
-                  if (result.ok && result.workspace) {
-                    setActiveId(thread.id);
-                    setWorkspace(result.workspace);
-                  }
-                });
-              }}
-            >
-              <span className="thread-status" />
-              <span className="thread-copy">
-                <strong>{thread.title}</strong>
-                <small>{shortPath(thread.workspace)}</small>
-              </span>
-              <span
-                className="thread-delete"
-                role="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  deleteThread(thread.id);
-                }}
+          {visibleProjects.map((project) => {
+            const collapsed = collapsedProjects.has(project.path);
+            const projectThreads = threadsByProject.get(project.path) || [];
+            return (
+              <div className="project-group" key={project.path}>
+                <div
+                  className={clsx("project-header", project.path === workspace && "active")}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (projectRenamingPath === project.path) return;
+                    setCollapsedProjects((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(project.path)) next.delete(project.path);
+                      else next.add(project.path);
+                      return next;
+                    });
+                  }}
+                >
+                  <IconChevronDown
+                    size={13}
+                    className={clsx("project-chevron", collapsed && "collapsed")}
+                  />
+                  <IconFolder size={14} />
+                  {projectRenamingPath === project.path ? (
+                    <input
+                      className="thread-rename-input"
+                      autoFocus
+                      value={projectRenameValue}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setProjectRenameValue(event.target.value)}
+                      onBlur={commitProjectRename}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") commitProjectRename();
+                        if (event.key === "Escape") setProjectRenamingPath(null);
+                      }}
+                    />
+                  ) : (
+                    <span className="project-name">
+                      {project.pinned ? <IconPin size={11} className="pin-badge" /> : null}
+                      {project.name}
+                    </span>
+                  )}
+                  <span className="project-count">{projectThreads.length}</span>
+                  <span
+                    className="thread-menu-trigger"
+                    role="button"
+                    title="在此项目下新建对话"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void newChatInProject(project.path);
+                    }}
+                  >
+                    <IconMessageCirclePlus size={15} />
+                  </span>
+                  <span
+                    className="thread-menu-trigger"
+                    role="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setProjectMenuPath(projectMenuPath === project.path ? null : project.path);
+                    }}
+                  >
+                    <IconDots size={16} />
+                  </span>
+                  {projectMenuPath === project.path ? (
+                    <div
+                      className="thread-menu project-menu"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <span
+                        role="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openProjectFolder(project.path);
+                        }}
+                      >
+                        <IconFolderOpen size={14} />
+                        在资源管理器中打开
+                      </span>
+                      <span
+                        role="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startProjectRename(project.path);
+                        }}
+                      >
+                        <IconPencil size={14} />
+                        重命名
+                      </span>
+                      <span
+                        role="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          togglePinProject(project.path);
+                        }}
+                      >
+                        <IconPin size={14} />
+                        {project.pinned ? "取消置顶" : "置顶"}
+                      </span>
+                      <span
+                        className="danger"
+                        role="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeProject(project.path);
+                        }}
+                      >
+                        <IconTrash size={14} />
+                        移除项目
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                {collapsed ? null : projectThreads.map((thread) => renderThreadRow(thread))}
+              </div>
+            );
+          })}
+          {archivedThreads.length ? (
+            <div className="archived-section">
+              <button
+                className="archived-toggle"
+                onClick={() => setArchivedOpen((open) => !open)}
               >
-                <IconTrash size={14} />
-              </span>
-            </button>
-          ))}
+                <IconArchive size={13} />
+                已归档（{archivedThreads.length}）
+                <IconChevronDown
+                  size={13}
+                  className={clsx("archived-chevron", archivedOpen && "open")}
+                />
+              </button>
+              {archivedOpen
+                ? archivedThreads.map((thread) => (
+                    <div className="archived-row" key={thread.id}>
+                      <span className="thread-copy">
+                        <strong>{thread.title}</strong>
+                      </span>
+                      <span
+                        role="button"
+                        title="取消归档"
+                        onClick={() => toggleArchive(thread.id)}
+                      >
+                        <IconArchiveOff size={14} />
+                      </span>
+                      <span
+                        role="button"
+                        title="移除"
+                        onClick={() => deleteThread(thread.id)}
+                      >
+                        <IconTrash size={14} />
+                      </span>
+                    </div>
+                  ))
+                : null}
+            </div>
+          ) : null}
         </div>
         <div className="sidebar-footer">
           <button onClick={() => setSettingsOpen(true)}>
@@ -767,15 +1342,20 @@ export default function App() {
                 setRightOpen(true);
                 setRightTab("performance");
               }}
-              title="查看前缀缓存与用量"
+              title="查看累计花费与用量"
             >
-              <span>前缀</span>
-              <strong>{performance?.cache.label || "检查中"}</strong>
+              <span>累计</span>
+              <strong>¥{(performance?.usage.totals.cost_cny ?? 0).toFixed(2)}</strong>
             </button>
-            <select value={mode} onChange={(event) => setMode(event.target.value)}>
-              <option value="plan">Plan</option>
-              <option value="agent">Agent</option>
-              <option value="yolo">YOLO</option>
+            <span className={clsx("mode-dot", mode)} title="安全等级:绿=只看不改 · 黄=改前问我 · 红=放手干" />
+            <select
+              value={mode}
+              onChange={(event) => setMode(event.target.value)}
+              title="只看不改：只分析、绝不动你的文件；改前问我（推荐）：每次改文件或跑命令前征求你同意；放手干：在项目内自己动手、不打扰你"
+            >
+              <option value="plan">只看不改</option>
+              <option value="agent">改前问我</option>
+              <option value="yolo">放手干</option>
             </select>
             <select value={model} onChange={(event) => setModel(event.target.value)}>
               <option value="deepseek-v4-flash">V4 Flash</option>
@@ -823,11 +1403,39 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              {recentThreads.length > 0 ? (
+                <div className="empty-recent">
+                  <div className="empty-recent-head">
+                    <IconHistory size={13} />
+                    最近的任务
+                  </div>
+                  <div className="empty-recent-list">
+                    {recentThreads.map((thread) => (
+                      <button
+                        key={thread.id}
+                        className="empty-recent-item"
+                        onClick={() => openThread(thread)}
+                      >
+                        <strong>{thread.title}</strong>
+                        <small>{shortPath(thread.workspace)}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="message-stack">
-              {activeThread.messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+              {activeThread.messages.map((message, index) => (
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  isStreaming={
+                    running &&
+                    message.role === "assistant" &&
+                    index === activeThread.messages.length - 1
+                  }
+                />
               ))}
             </div>
           )}
@@ -901,11 +1509,14 @@ export default function App() {
                   <IconPaperclip size={15} />
                   添加附件
                 </button>
-                <span>
+                <span title="改这个用顶部的模式下拉框">
                   <IconCode size={14} />
-                  {mode === "plan" ? "只读规划" : mode === "yolo" ? "完全放行" : "自动工具"}
+                  {mode === "plan"
+                    ? "只看不改"
+                    : mode === "yolo"
+                      ? "放手干 · 不问你"
+                      : "改动前会问你"}
                 </span>
-                {activeThread?.sessionId ? <span>会话已持续</span> : null}
               </div>
               {running ? (
                 <button className="send-button stop" onClick={() => window.whale.stopTurn()}>
@@ -966,6 +1577,16 @@ export default function App() {
               <IconGitBranch size={15} />
               <span>{gitStatus.split(/\r?\n/)[0]?.replace(/^##\s*/, "") || "未检测到 Git"}</span>
             </div>
+            {canUndo ? (
+              <button
+                className="undo-button"
+                onClick={() => void undoLastChange()}
+                title="把工作区还原到上一轮 AI 改动之前"
+              >
+                <IconArrowBackUp size={15} />
+                撤销 AI 上次改动
+              </button>
+            ) : null}
             {!changedFiles.length ? (
               <div className="panel-empty">
                 <IconBrandGit size={28} />
@@ -990,43 +1611,43 @@ export default function App() {
           <div className="performance-panel">
             <div className="performance-heading">
               <div>
-                <span className="panel-caption">PREFIX CACHE</span>
-                <strong>前缀缓存健康度</strong>
+                <span className="panel-caption">USAGE</span>
+                <strong>花费与用量</strong>
               </div>
               <button className="icon-button" onClick={() => void refreshPerformance()}>
                 <IconRefresh size={16} />
               </button>
             </div>
-            <div className="cache-score">
-              <strong>{performance?.profile.changed ? "已变化" : "稳定"}</strong>
-              <span>模型、项目指令与 MCP 工具结构</span>
+            <div className="cost-score">
+              <span>累计花费 · 估算</span>
+              <strong>¥{(performance?.usage.totals.cost_cny ?? 0).toFixed(4)}</strong>
+              <small>按典型缓存命中（约 90%）估算，近似真实花费，非账单</small>
+              <button
+                className="reset-usage"
+                onClick={async () => {
+                  const ok = window.confirm(
+                    "把累计花费和用量清零吗？\n\n只清这个统计数字，不影响你的对话、项目或账户余额。"
+                  );
+                  if (!ok) return;
+                  await window.whale.resetUsage();
+                  await refreshPerformance();
+                }}
+              >
+                清零累计
+              </button>
             </div>
             <div className="metric-grid">
-              <div>
-                <span>输出 Token</span>
-                <strong>{(performance?.usage.totals.output_tokens || 0).toLocaleString()}</strong>
-              </div>
-              <div>
-                <span>输入 Token</span>
-                <strong>{(performance?.usage.totals.input_tokens || 0).toLocaleString()}</strong>
-              </div>
               <div>
                 <span>完成轮次</span>
                 <strong>{performance?.usage.totals.turns || 0}</strong>
               </div>
               <div>
-                <span>缓存命中率</span>
-                <strong>运行时未暴露</strong>
+                <span>Token 用量（输入 / 输出）</span>
+                <strong>
+                  {(performance?.usage.totals.input_tokens || 0).toLocaleString()} /{" "}
+                  {(performance?.usage.totals.output_tokens || 0).toLocaleString()}
+                </strong>
               </div>
-            </div>
-            <div className="profile-card">
-              <span>稳定前缀画像</span>
-              <code>{performance?.profile.fingerprint || "等待运行时"}</code>
-              {performance?.profile.changed ? (
-                <p>{performance.profile.changes.join("、") || "前缀结构已变化"}</p>
-              ) : (
-                <p>指令、模型和工具结构保持稳定。</p>
-              )}
             </div>
             <div className="runtime-update">
               <div>
@@ -1050,7 +1671,9 @@ export default function App() {
                 {updating ? <IconLoader2 className="spin" size={15} /> : <IconRefresh size={15} />}
                 {updateState?.available ? "立即更新" : "已是最新"}
               </button>
-              {updateState?.error ? <p className="form-error">{updateState.error}</p> : null}
+              {updateState?.error ? (
+                <p className="update-note">暂时无法联网检查更新（网络受限），当前版本可正常使用。</p>
+              ) : null}
             </div>
           </div>
         )}

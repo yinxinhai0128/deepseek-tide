@@ -16,6 +16,9 @@ desktop/build/*
 .deepseek/
 vendor/*
 codewhale-windows-*.zip
+.claude/
+desktop/qa/shots/
+desktop/qa/*.png
 desktop/node_modules/
 desktop/dist/
 desktop/release/

@@ -1,6 +1,6 @@
 {
   "name": "deepseek-tide-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "author": "DeepSeek-Tide Contributors",
   "description": "A focused desktop coding agent powered by DeepSeek and CodeWhale",
@@ -29,6 +29,7 @@
     "concurrently": "^9.1.2",
     "electron": "^42.3.3",
     "electron-builder": "^26.15.2",
+    "playwright": "^1.60.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
