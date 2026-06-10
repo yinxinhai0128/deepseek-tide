@@ -242,6 +242,44 @@ button {
   color: var(--accent);
 }
 
+.section-toggle {
+  justify-content: flex-start;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-toggle:hover {
+  color: #9aa0a8;
+}
+
+.section-toggle .project-chevron {
+  color: #777c84;
+}
+
+.section-count {
+  color: #5f656d;
+  font-size: 10px;
+}
+
+.section-search-toggle.push-right {
+  margin-left: auto;
+}
+
+.project-header.drag-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+  background: rgba(79, 157, 255, 0.14);
+}
+
+.thread-row {
+  cursor: grab;
+}
+
+.thread-row:active {
+  cursor: grabbing;
+}
+
 .sidebar-search {
   display: flex;
   align-items: center;

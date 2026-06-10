@@ -108,18 +108,6 @@ function loadProjects(): Project[] {
   }
 }
 
-// 用户显式「移除」过的项目路径。迁移逻辑要跳过它们,否则会被「当前工作区」自动补回来,导致删不掉。
-const STORAGE_KEY_REMOVED = "deepseek-tide.desktop.removed-projects.v1";
-
-function loadRemovedProjects(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY_REMOVED) || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-
 function threadsForStorage(threads: Thread[]): Thread[] {
   return threads.slice(0, 40).map((thread) => ({
     ...thread,
@@ -526,7 +514,11 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [projects, setProjects] = useState<Project[]>(() => loadProjects());
-  const [removedProjects, setRemovedProjects] = useState<string[]>(() => loadRemovedProjects());
+  const [defaultWorkspace, setDefaultWorkspace] = useState("");
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [chatsOpen, setChatsOpen] = useState(true);
+  const [dragThreadId, setDragThreadId] = useState<string | null>(null);
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
   const [projectRenamingPath, setProjectRenamingPath] = useState<string | null>(null);
   const [projectRenameValue, setProjectRenameValue] = useState("");
@@ -611,6 +603,18 @@ export default function App() {
     return result;
   }, [searchQuery, visibleProjects, threadsByProject]);
 
+  // 对话区:不归属任何项目的"松散"聊天(工作区不在已添加的项目里),按时间倒序。
+  const looseThreadsToRender = useMemo(() => {
+    const projectPaths = new Set(projects.map((project) => project.path));
+    const loose = groupedThreads.filter((thread) => !projectPaths.has(thread.workspace));
+    if (!searchQuery) return loose;
+    return loose.filter(
+      (thread) =>
+        thread.title.toLowerCase().includes(searchQuery) ||
+        thread.messages.some((message) => message.content.toLowerCase().includes(searchQuery))
+    );
+  }, [groupedThreads, projects, searchQuery]);
+
   // Ctrl/Cmd+F 打开并聚焦侧栏搜索(对标 Codex 的快捷搜历史对话)。
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -628,6 +632,7 @@ export default function App() {
     Promise.all([window.whale.getWorkspace(), window.whale.getStatus()]).then(
       ([currentWorkspace, status]) => {
         setWorkspace(currentWorkspace);
+        setDefaultWorkspace(currentWorkspace);
         setRuntime(status);
         if (!status.authenticated) setSettingsOpen(true);
       }
@@ -649,33 +654,6 @@ export default function App() {
       /* 配额不足时忽略，不影响使用 */
     }
   }, [projects]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_REMOVED, JSON.stringify(removedProjects.slice(0, 200)));
-    } catch {
-      /* 配额不足时忽略 */
-    }
-  }, [removedProjects]);
-
-  // 迁移/补齐：把已有会话所属的文件夹、以及当前工作区,自动补进项目列表。
-  // 跳过用户显式移除过的项目,否则删了会被立刻补回来。
-  useEffect(() => {
-    setProjects((current) => {
-      const known = new Set(current.map((project) => project.path));
-      const removed = new Set(removedProjects);
-      const additions: Project[] = [];
-      const consider = (path: string) => {
-        if (path && !known.has(path) && !removed.has(path)) {
-          known.add(path);
-          additions.push({ path, name: projectName(path), addedAt: Date.now() });
-        }
-      };
-      for (const thread of threads) consider(thread.workspace);
-      if (workspace) consider(workspace);
-      return additions.length ? [...current, ...additions] : current;
-    });
-  }, [threads, workspace, removedProjects]);
 
   async function refreshPerformance() {
     // 用量本地读取、很快,立即刷新;检查更新走 GitHub 网络可能很慢,放后台,
@@ -933,7 +911,6 @@ export default function App() {
   async function addProject() {
     const selected = await window.whale.chooseWorkspace();
     if (!selected) return;
-    setRemovedProjects((current) => current.filter((p) => p !== selected));
     setProjects((current) =>
       current.some((project) => project.path === selected)
         ? current
@@ -945,7 +922,6 @@ export default function App() {
   async function newChatInProject(path: string) {
     const result = await window.whale.setWorkspace(path);
     if (!result.ok || !result.workspace) return;
-    setRemovedProjects((current) => current.filter((p) => p !== result.workspace));
     setWorkspace(result.workspace);
     createThread(result.workspace);
   }
@@ -990,7 +966,17 @@ export default function App() {
     if (!confirmed) return;
     setProjects((current) => current.filter((project) => project.path !== path));
     setThreads((current) => current.filter((thread) => thread.workspace !== path));
-    setRemovedProjects((current) => (current.includes(path) ? current : [...current, path]));
+  }
+
+  // 把一条聊天归入某个项目:改它的工作区到该项目(从对话区移到项目下)。
+  function fileThreadIntoProject(threadId: string, projectPath: string) {
+    setThreads((current) =>
+      current.map((thread) =>
+        thread.id === threadId ? { ...thread, workspace: projectPath, updatedAt: Date.now() } : thread
+      )
+    );
+    setDragThreadId(null);
+    setDragOverPath(null);
   }
 
   async function submit() {
@@ -1097,6 +1083,15 @@ export default function App() {
         key={thread.id}
         role="button"
         tabIndex={0}
+        draggable={renamingId !== thread.id}
+        onDragStart={(event) => {
+          setDragThreadId(thread.id);
+          event.dataTransfer.effectAllowed = "move";
+        }}
+        onDragEnd={() => {
+          setDragThreadId(null);
+          setDragOverPath(null);
+        }}
         className={clsx("thread-row", activeId === thread.id && "active")}
         onClick={() => {
           if (renamingId === thread.id) return;
@@ -1211,8 +1206,8 @@ export default function App() {
         </div>
         <button
           className="new-chat-primary"
-          onClick={() => createThread()}
-          title="在当前项目下开始新对话"
+          onClick={() => createThread(defaultWorkspace || workspace)}
+          title="开始一个新对话(在「对话」区)"
         >
           <IconMessageCirclePlus size={17} />
           新对话
@@ -1221,22 +1216,6 @@ export default function App() {
           <IconFolderPlus size={17} />
           添加项目
         </button>
-        <div className="sidebar-section-title">
-          <span>项目</span>
-          <button
-            className="icon-button section-search-toggle"
-            title="搜索项目与对话 (Ctrl+F)"
-            onClick={() =>
-              setSearchOpen((open) => {
-                if (open) setSearch("");
-                else requestAnimationFrame(() => searchInputRef.current?.focus());
-                return !open;
-              })
-            }
-          >
-            <IconSearch size={14} />
-          </button>
-        </div>
         {searchOpen ? (
           <div className="sidebar-search">
             <IconSearch size={13} />
@@ -1260,15 +1239,58 @@ export default function App() {
           </div>
         ) : null}
         <div className="thread-list">
-          {projectsToRender.map(({ project, threads }) => {
+          <div
+            className="sidebar-section-title section-toggle"
+            role="button"
+            onClick={() => setProjectsOpen((open) => !open)}
+          >
+            <IconChevronDown
+              size={12}
+              className={clsx("project-chevron", !projectsOpen && !searchQuery && "collapsed")}
+            />
+            <span>项目</span>
+            <span className="section-count">{projects.length}</span>
+            <button
+              className="icon-button section-search-toggle push-right"
+              title="搜索项目与对话 (Ctrl+F)"
+              onClick={(event) => {
+                event.stopPropagation();
+                setSearchOpen((open) => {
+                  if (open) setSearch("");
+                  else requestAnimationFrame(() => searchInputRef.current?.focus());
+                  return !open;
+                });
+              }}
+            >
+              <IconSearch size={14} />
+            </button>
+          </div>
+          {projectsOpen || searchQuery
+            ? projectsToRender.map(({ project, threads }) => {
             const collapsed = !searchQuery && collapsedProjects.has(project.path);
             const projectThreads = threads;
             return (
               <div className="project-group" key={project.path}>
                 <div
-                  className={clsx("project-header", project.path === workspace && "active")}
+                  className={clsx(
+                    "project-header",
+                    project.path === workspace && "active",
+                    dragOverPath === project.path && "drag-over"
+                  )}
                   role="button"
                   tabIndex={0}
+                  onDragOver={(event) => {
+                    if (!dragThreadId) return;
+                    event.preventDefault();
+                    setDragOverPath(project.path);
+                  }}
+                  onDragLeave={() =>
+                    setDragOverPath((current) => (current === project.path ? null : current))
+                  }
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (dragThreadId) fileThreadIntoProject(dragThreadId, project.path);
+                  }}
                   onClick={() => {
                     if (projectRenamingPath === project.path) return;
                     setCollapsedProjects((prev) => {
@@ -1378,9 +1400,34 @@ export default function App() {
                 {collapsed ? null : projectThreads.map((thread) => renderThreadRow(thread))}
               </div>
             );
-          })}
-          {searchQuery && !projectsToRender.length ? (
-            <div className="search-empty">没有匹配「{search.trim()}」的项目或对话</div>
+          })
+            : null}
+          {(projectsOpen || searchQuery) && searchQuery && !projectsToRender.length ? (
+            <div className="search-empty">没有匹配「{search.trim()}」的项目</div>
+          ) : null}
+          {projectsOpen && !searchQuery && !projects.length ? (
+            <div className="search-empty">还没有项目 —— 点上面「添加项目」</div>
+          ) : null}
+
+          <div
+            className="sidebar-section-title section-toggle"
+            role="button"
+            onClick={() => setChatsOpen((open) => !open)}
+          >
+            <IconChevronDown
+              size={12}
+              className={clsx("project-chevron", !chatsOpen && !searchQuery && "collapsed")}
+            />
+            <span>对话</span>
+            <span className="section-count">{looseThreadsToRender.length}</span>
+          </div>
+          {chatsOpen || searchQuery
+            ? looseThreadsToRender.map((thread) => renderThreadRow(thread))
+            : null}
+          {(chatsOpen || searchQuery) && !looseThreadsToRender.length ? (
+            <div className="search-empty">
+              {searchQuery ? "没有匹配的对话" : "还没有对话 —— 点上面「新对话」开始"}
+            </div>
           ) : null}
           {archivedThreads.length ? (
             <div className="archived-section">
