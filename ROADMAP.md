@@ -15,7 +15,13 @@
   4. ✅ 修正了 SHA256SUMS 旧哈希对不上新包的隐患,重算并随 Release 发布
   5. 截撤销图时临时造空快照让按钮显形,截完已删除,未给真实工作区留下危险快照
 - ✅ **v0.3.2 加对话搜索**(2026-06-10):补齐同类产品表桌功能(死搜索图标→可用)。调研了 DeepSeek-GUI/Palot/opcode(AGPL,只学不抄)/open-cowork,结论见 [[reference_borrowable_projects]];按"简单、只给 DeepSeek"原则,不做 OpenAI 中转/Base URL
-- 🔜 下一步候选:① 收集试用反馈 ② 丝滑打磨 backlog 剩余(键盘/斜杠命令/diff 语法高亮)③ 性能面板"CodeWhale 运行时 v未知"(仅 dist 跑时显示,打包版正常,可低优先核对)
+- ✅ **v0.3.3 顶部「新对话」一级入口**(2026-06-10):用户反馈项目内小「+」太小、新用户找不到新对话。对标 Codex,在侧栏最顶加醒目蓝色「新对话」按钮(当前项目下开聊),小「+」保留为次级。QA verify-newchat.cjs 2/2 ✅
+  - 打包注意:重新打包前必须先关掉正在运行的 win-unpacked 实例(`Get-Process DeepSeek-Tide | Stop-Process -Force`),否则 EPERM unlink dll 失败
+- ✅ **v0.3.4 侧栏两大区 + 讲解模式**(2026-06-10):
+  - 侧栏拆「项目」「对话」两可折叠大区,聊天可拖进项目归类(对标 Codex);移除旧迁移逻辑。QA verify-sections.cjs 8/8
+  - 讲解模式(北极星"看得懂"):改完用大白话小结"改了啥/为什么",发往引擎的提示追加指令、不污染用户气泡、没改文件不啰嗦。真实端到端 smoke-explain.cjs 通过(AI 实改文件+输出符合预期小结)
+- 🔜 下一步候选(都符合"简单/只给 DeepSeek"):① 任务模板引导(上手即用)② diff 语法高亮(借鉴 Palot,看得懂)③ 健壮性防呆(key失效/断网/崩溃恢复)④ 复制代码/消息按钮(小表桌功能)
+- ⚠️ 性能面板"CodeWhale 运行时 v未知"仅 dist 跑时显示,打包版正常,低优先
 - ⚠️ **环境铁律:只用 PowerShell,禁用 Bash/Linux 命令(head/grep/cat/管道等)**,否则会卡死。git/gh/npm 都用 PowerShell 跑。
 
 ## 北极星
