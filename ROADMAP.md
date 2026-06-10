@@ -2,6 +2,18 @@
 
 > **这是进度的单一事实来源。** 每次开工先看下面「当前进度」,做完一项就在这里勾掉并更新,避免"做着做着乱了、忘了做到哪"。
 
+## 📍 当前进度(2026-06-10)
+- ✅ 项目已上线 GitHub:**https://github.com/yinxinhai0128/deepseek-tide**(公开,账号 yinxinhai0128,分支 main)
+- ✅ 所有 P1-P4 改动已提交(项目管理、撤销、看钱、蓝主题、新图标、开通向导、卡死/取消/刷新等修复)
+- ✅ **首个 Release 已发布:v0.3.0** → https://github.com/yinxinhai0128/deepseek-tide/releases/tag/v0.3.0
+  1. ✅ 重新打包(含全部最新修复+新蓝图标)→ Setup/Portable 0.3.0(各 ~115MB)
+  2. ✅ README 改成面向小白:顶部大号下载链接(指向 /releases/latest)、三步上手、隐私说明
+  3. ✅ 我自己用 Playwright 操作真实界面截了 4 张图(主界面/开通向导/花费/撤销)→ `docs/screenshots/`,已入 README
+  4. ✅ 修正了 SHA256SUMS 旧哈希对不上新包的隐患,重算并随 Release 发布
+  5. 截撤销图时临时造空快照让按钮显形,截完已删除,未给真实工作区留下危险快照
+- 🔜 下一步候选:① 收集试用反馈 ② 丝滑打磨 backlog(键盘/斜杠命令/对话搜索)③ 性能面板"CodeWhale 运行时 v未知"(仅 dist 跑时显示,打包版正常,可低优先核对)
+- ⚠️ **环境铁律:只用 PowerShell,禁用 Bash/Linux 命令(head/grep/cat/管道等)**,否则会卡死。git/gh/npm 都用 PowerShell 跑。
+
 ## 北极星
 **零配置、上手即用、不怕弄坏、看得懂、找得到。**
 让任何愿意尝试 DeepSeek 编程智能体的人都能便捷使用。
