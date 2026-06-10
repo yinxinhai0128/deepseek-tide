@@ -530,6 +530,9 @@ export default function App() {
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
   const [projectRenamingPath, setProjectRenamingPath] = useState<string | null>(null);
   const [projectRenameValue, setProjectRenameValue] = useState("");
+  const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const activeThread = threads.find((thread) => thread.id === activeId);
 
   const groupedThreads = useMemo(
@@ -587,6 +590,39 @@ export default function App() {
       return latestOf(b.path) - latestOf(a.path);
     });
   }, [projects, threadsByProject, workspace]);
+
+  // 搜索:按项目名 / 对话标题 / 消息内容过滤,匹配时连项目带对话一起筛。
+  const searchQuery = search.trim().toLowerCase();
+  const projectsToRender = useMemo(() => {
+    const base = visibleProjects.map((project) => ({
+      project,
+      threads: threadsByProject.get(project.path) || []
+    }));
+    if (!searchQuery) return base;
+    const threadHit = (thread: Thread) =>
+      thread.title.toLowerCase().includes(searchQuery) ||
+      thread.messages.some((message) => message.content.toLowerCase().includes(searchQuery));
+    const result: { project: Project; threads: Thread[] }[] = [];
+    for (const entry of base) {
+      const nameHit = entry.project.name.toLowerCase().includes(searchQuery);
+      const threads = nameHit ? entry.threads : entry.threads.filter(threadHit);
+      if (nameHit || threads.length) result.push({ project: entry.project, threads });
+    }
+    return result;
+  }, [searchQuery, visibleProjects, threadsByProject]);
+
+  // Ctrl/Cmd+F 打开并聚焦侧栏搜索(对标 Codex 的快捷搜历史对话)。
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     Promise.all([window.whale.getWorkspace(), window.whale.getStatus()]).then(
@@ -1179,12 +1215,46 @@ export default function App() {
         </button>
         <div className="sidebar-section-title">
           <span>项目</span>
-          <IconSearch size={14} />
+          <button
+            className="icon-button section-search-toggle"
+            title="搜索项目与对话 (Ctrl+F)"
+            onClick={() =>
+              setSearchOpen((open) => {
+                if (open) setSearch("");
+                else requestAnimationFrame(() => searchInputRef.current?.focus());
+                return !open;
+              })
+            }
+          >
+            <IconSearch size={14} />
+          </button>
         </div>
+        {searchOpen ? (
+          <div className="sidebar-search">
+            <IconSearch size={13} />
+            <input
+              ref={searchInputRef}
+              value={search}
+              placeholder="搜索项目、对话标题或内容…"
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearch("");
+                  setSearchOpen(false);
+                }
+              }}
+            />
+            {search ? (
+              <button className="icon-button" title="清除" onClick={() => setSearch("")}>
+                <IconX size={13} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="thread-list">
-          {visibleProjects.map((project) => {
-            const collapsed = collapsedProjects.has(project.path);
-            const projectThreads = threadsByProject.get(project.path) || [];
+          {projectsToRender.map(({ project, threads }) => {
+            const collapsed = !searchQuery && collapsedProjects.has(project.path);
+            const projectThreads = threads;
             return (
               <div className="project-group" key={project.path}>
                 <div
@@ -1301,6 +1371,9 @@ export default function App() {
               </div>
             );
           })}
+          {searchQuery && !projectsToRender.length ? (
+            <div className="search-empty">没有匹配「{search.trim()}」的项目或对话</div>
+          ) : null}
           {archivedThreads.length ? (
             <div className="archived-section">
               <button

@@ -212,6 +212,52 @@ button {
   letter-spacing: 0.08em;
 }
 
+.section-search-toggle {
+  color: #777c84;
+  cursor: pointer;
+}
+
+.section-search-toggle:hover {
+  color: var(--accent);
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 11px 6px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #9aa0a8;
+}
+
+.sidebar-search:focus-within {
+  border-color: var(--accent);
+}
+
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: #e8eaed;
+  font-size: 13px;
+  outline: none;
+}
+
+.sidebar-search input::placeholder {
+  color: #6c727a;
+}
+
+.search-empty {
+  padding: 16px 15px;
+  color: #777c84;
+  font-size: 12px;
+  text-align: center;
+}
+
 .thread-list {
   overflow-y: auto;
   flex: 1;
