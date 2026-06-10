@@ -1,6 +1,6 @@
 {
   "name": "deepseek-tide-desktop",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "author": "DeepSeek-Tide Contributors",
   "description": "A focused desktop coding agent powered by DeepSeek and CodeWhale",
