@@ -18,6 +18,7 @@ vendor/*
 codewhale-windows-*.zip
 .claude/
 desktop/qa/shots/
+desktop/qa/frames/
 desktop/qa/*.png
 desktop/node_modules/
 desktop/dist/
