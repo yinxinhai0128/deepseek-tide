@@ -6,6 +6,9 @@
 - ✅ 项目已上线 GitHub:**https://github.com/yinxinhai0128/deepseek-tide**(公开,账号 yinxinhai0128,分支 main)
 - ✅ 所有 P1-P4 改动已提交(项目管理、撤销、看钱、蓝主题、新图标、开通向导、卡死/取消/刷新等修复)
 - ✅ **首个 Release 已发布:v0.3.0** → https://github.com/yinxinhai0128/deepseek-tide/releases/tag/v0.3.0
+- ✅ **v0.3.1 修两个用户反馈 bug**(2026-06-10):
+  - 项目删不掉:迁移逻辑用当前工作区把刚删的项目补回。改为持久化「已移除项目」集合,迁移跳过(QA verify-delete.cjs 验证:删→重载→不复活 ✅)
+  - 新装非清零:安装版运行时误用开发版 userData(`deepseek-tide-desktop`),泄漏调试数据。打包版改用独立 `DeepSeek-Tide` 命名空间(QA verify-packaged-userdata.cjs 验证:isPackaged 时 userData=...\DeepSeek-Tide ✅)。Key 在 CodeWhale 侧不受影响
   1. ✅ 重新打包(含全部最新修复+新蓝图标)→ Setup/Portable 0.3.0(各 ~115MB)
   2. ✅ README 改成面向小白:顶部大号下载链接(指向 /releases/latest)、三步上手、隐私说明
   3. ✅ 我自己用 Playwright 操作真实界面截了 4 张图(主界面/开通向导/花费/撤销)→ `docs/screenshots/`,已入 README
