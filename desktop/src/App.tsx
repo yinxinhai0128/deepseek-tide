@@ -108,6 +108,18 @@ function loadProjects(): Project[] {
   }
 }
 
+// 用户显式「移除」过的项目路径。迁移逻辑要跳过它们,否则会被「当前工作区」自动补回来,导致删不掉。
+const STORAGE_KEY_REMOVED = "deepseek-tide.desktop.removed-projects.v1";
+
+function loadRemovedProjects(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY_REMOVED) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
 function threadsForStorage(threads: Thread[]): Thread[] {
   return threads.slice(0, 40).map((thread) => ({
     ...thread,
@@ -514,6 +526,7 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [projects, setProjects] = useState<Project[]>(() => loadProjects());
+  const [removedProjects, setRemovedProjects] = useState<string[]>(() => loadRemovedProjects());
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
   const [projectRenamingPath, setProjectRenamingPath] = useState<string | null>(null);
   const [projectRenameValue, setProjectRenameValue] = useState("");
@@ -601,13 +614,23 @@ export default function App() {
     }
   }, [projects]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_REMOVED, JSON.stringify(removedProjects.slice(0, 200)));
+    } catch {
+      /* 配额不足时忽略 */
+    }
+  }, [removedProjects]);
+
   // 迁移/补齐：把已有会话所属的文件夹、以及当前工作区,自动补进项目列表。
+  // 跳过用户显式移除过的项目,否则删了会被立刻补回来。
   useEffect(() => {
     setProjects((current) => {
       const known = new Set(current.map((project) => project.path));
+      const removed = new Set(removedProjects);
       const additions: Project[] = [];
       const consider = (path: string) => {
-        if (path && !known.has(path)) {
+        if (path && !known.has(path) && !removed.has(path)) {
           known.add(path);
           additions.push({ path, name: projectName(path), addedAt: Date.now() });
         }
@@ -616,7 +639,7 @@ export default function App() {
       if (workspace) consider(workspace);
       return additions.length ? [...current, ...additions] : current;
     });
-  }, [threads, workspace]);
+  }, [threads, workspace, removedProjects]);
 
   async function refreshPerformance() {
     // 用量本地读取、很快,立即刷新;检查更新走 GitHub 网络可能很慢,放后台,
@@ -874,6 +897,7 @@ export default function App() {
   async function addProject() {
     const selected = await window.whale.chooseWorkspace();
     if (!selected) return;
+    setRemovedProjects((current) => current.filter((p) => p !== selected));
     setProjects((current) =>
       current.some((project) => project.path === selected)
         ? current
@@ -885,6 +909,7 @@ export default function App() {
   async function newChatInProject(path: string) {
     const result = await window.whale.setWorkspace(path);
     if (!result.ok || !result.workspace) return;
+    setRemovedProjects((current) => current.filter((p) => p !== result.workspace));
     setWorkspace(result.workspace);
     createThread(result.workspace);
   }
@@ -929,6 +954,7 @@ export default function App() {
     if (!confirmed) return;
     setProjects((current) => current.filter((project) => project.path !== path));
     setThreads((current) => current.filter((thread) => thread.workspace !== path));
+    setRemovedProjects((current) => (current.includes(path) ? current : [...current, path]));
   }
 
   async function submit() {

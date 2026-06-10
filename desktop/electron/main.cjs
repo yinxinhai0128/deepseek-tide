@@ -12,6 +12,13 @@ const {
   isPathInside
 } = require("./workspace-security.cjs");
 
+// 安装版用独立、干净的 userData 命名空间(对齐 productName),
+// 避免与开发版(deepseek-tide-desktop)共用目录、把调试时的项目/花费泄漏给真实用户。
+// 必须在任何 app.getPath("userData") 调用之前设置。
+if (app.isPackaged) {
+  app.setName("DeepSeek-Tide");
+}
+
 let mainWindow;
 let activeAgent = null;
 let workspace = process.cwd();
