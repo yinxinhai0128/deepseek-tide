@@ -72,6 +72,12 @@ type Thread = {
 };
 
 const uid = () => crypto.randomUUID();
+
+// 讲解模式:只追加到发给引擎的提示(不污染界面里的用户气泡),
+// 让 AI 在改动文件后用面向小白的大白话小结改了啥、为什么;没改文件就正常回答,避免啰嗦。
+const EXPLAIN_SUFFIX =
+  "\n\n（附加要求:如果这次你改动了文件,请在回答最后用中文、面向不懂编程的人,用几句话小结你改了哪些文件、分别为什么改,以「📝 小结」开头;如果没有改动文件,就正常回答,无需小结。）";
+
 const STORAGE_KEY = "deepseek-tide.desktop.threads.v1";
 const LEGACY_STORAGE_KEY = "whaletide.desktop.threads.v1";
 
@@ -1041,7 +1047,7 @@ export default function App() {
       : "";
     const result = await window.whale.startTurn({
       workspace,
-      prompt: `${content || "请查看并分析附件。"}${attachmentContext}`,
+      prompt: `${content || "请查看并分析附件。"}${attachmentContext}${EXPLAIN_SUFFIX}`,
       model,
       mode,
       sessionId: thread.sessionId
