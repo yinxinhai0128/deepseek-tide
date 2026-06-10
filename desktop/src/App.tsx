@@ -1209,6 +1209,14 @@ export default function App() {
             <IconLayoutSidebarLeftCollapse size={17} />
           </button>
         </div>
+        <button
+          className="new-chat-primary"
+          onClick={() => createThread()}
+          title="在当前项目下开始新对话"
+        >
+          <IconMessageCirclePlus size={17} />
+          新对话
+        </button>
         <button className="new-thread-button" onClick={() => void addProject()}>
           <IconFolderPlus size={17} />
           添加项目
