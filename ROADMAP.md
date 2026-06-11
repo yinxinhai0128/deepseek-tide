@@ -22,7 +22,21 @@
   - 讲解模式(北极星"看得懂"):改完用大白话小结"改了啥/为什么",发往引擎的提示追加指令、不污染用户气泡、没改文件不啰嗦。真实端到端 smoke-explain.cjs 通过(AI 实改文件+输出符合预期小结)
 - ✅ **README 动态 demo(GIF)**(2026-06-11):Playwright 录真实操作 + ffmpeg 合成(16s/0.36MB),放 README 顶部
 - ✅ **v0.4.0 中英双语界面(i18n)**(2026-06-11):为发往国外渠道做准备。轻量方案(模块级 currentLang + t(中,英),App 渲染同步)全界面可切,左下角「中/EN」按钮,localStorage 持久化;讲解模式小结也随语言切。QA verify-i18n.cjs 10/10。英文 README.en.md + 英文 demo-en.gif 已就位
-- 🔜 下一步候选:① 发往国外渠道(Show HN/Reddit/Product Hunt,需起草发帖)② 任务模板引导 ③ diff 语法高亮(借鉴 Palot)④ 健壮性防呆(key失效/断网/崩溃恢复)
+- 🔜 下一步候选:① 任务模板引导 ② diff 语法高亮(借鉴 Palot)③ 健壮性防呆(key失效/断网/崩溃恢复)
+
+## 📣 分发/推广现状(2026-06-11)
+- 发帖文案在本地 `docs/launch-posts.md`(已 gitignore,不进仓库)
+- ✅ 已给仓库加主题标签(deepseek/coding-agent/ai-agent/electron/desktop-app/llm/developer-tools/code-assistant/ai-tools/gui)
+- ⚠️ 新账号被各平台反垃圾拦截:HN Show HN 对新号限制(/showlim)、Reddit r/SideProject 受限、X 免费版仅 280 字(已备短推 219 字)→ 结论:新号需先养几天 karma 再发
+- 🔨 **进行中:给 `deepseek-ai/awesome-deepseek-integration` 提 PR**(无门槛、直达 DeepSeek 用户)。放 **Applications** 区,HTML 表格行格式。准备好的条目:
+  ```html
+  <tr>
+      <td><img src="https://raw.githubusercontent.com/yinxinhai0128/deepseek-tide/main/desktop/build/icon.png" alt="Icon" width="64" height="auto" /></td>
+      <td><a href="https://github.com/yinxinhai0128/deepseek-tide">DeepSeek-Tide</a></td>
+      <td>A zero-config Windows desktop app to use DeepSeek as a coding agent — no terminal; plain-language change summaries, one-click undo, live cost; bilingual (EN/中文).</td>
+  </tr>
+  ```
+  步骤:fork → 在 README Applications 区加上面条目 → push → gh pr create
 - 📌 待办(低优先):main.cjs 后端错误提示仍是中文(很少触发),英文用户极端情况下会看到中文报错,可后续 i18n
 - ⚠️ 性能面板"CodeWhale 运行时 v未知"仅 dist 跑时显示,打包版正常,低优先
 - ⚠️ **环境铁律:只用 PowerShell,禁用 Bash/Linux 命令(head/grep/cat/管道等)**,否则会卡死。git/gh/npm 都用 PowerShell 跑。
