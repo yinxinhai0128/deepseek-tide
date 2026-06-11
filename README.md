@@ -1,5 +1,7 @@
 # DeepSeek-Tide 🐳
 
+[English](README.en.md) · **简体中文(当前)**
+
 **给 DeepSeek 套了一个"上手即用"的桌面外壳 —— 不用装终端、不用配环境,打开就能让 AI 帮你写代码、改文件。**
 
 面向 Windows,中文界面,零配置。底层托管官方开源(MIT)引擎 [CodeWhale](https://github.com/Hmbown/CodeWhale)(当前锁定 **v0.8.55**),桌面层是独立实现。
