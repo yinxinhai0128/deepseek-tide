@@ -17,6 +17,7 @@ desktop/build/*
 vendor/*
 codewhale-windows-*.zip
 .claude/
+docs/launch-posts.md
 desktop/qa/shots/
 desktop/qa/frames/
 desktop/qa/*.png
