@@ -20,7 +20,10 @@
 - ✅ **v0.3.4 侧栏两大区 + 讲解模式**(2026-06-10):
   - 侧栏拆「项目」「对话」两可折叠大区,聊天可拖进项目归类(对标 Codex);移除旧迁移逻辑。QA verify-sections.cjs 8/8
   - 讲解模式(北极星"看得懂"):改完用大白话小结"改了啥/为什么",发往引擎的提示追加指令、不污染用户气泡、没改文件不啰嗦。真实端到端 smoke-explain.cjs 通过(AI 实改文件+输出符合预期小结)
-- 🔜 下一步候选(都符合"简单/只给 DeepSeek"):① 任务模板引导(上手即用)② diff 语法高亮(借鉴 Palot,看得懂)③ 健壮性防呆(key失效/断网/崩溃恢复)④ 复制代码/消息按钮(小表桌功能)
+- ✅ **README 动态 demo(GIF)**(2026-06-11):Playwright 录真实操作 + ffmpeg 合成(16s/0.36MB),放 README 顶部
+- ✅ **v0.4.0 中英双语界面(i18n)**(2026-06-11):为发往国外渠道做准备。轻量方案(模块级 currentLang + t(中,英),App 渲染同步)全界面可切,左下角「中/EN」按钮,localStorage 持久化;讲解模式小结也随语言切。QA verify-i18n.cjs 10/10。英文 README.en.md + 英文 demo-en.gif 已就位
+- 🔜 下一步候选:① 发往国外渠道(Show HN/Reddit/Product Hunt,需起草发帖)② 任务模板引导 ③ diff 语法高亮(借鉴 Palot)④ 健壮性防呆(key失效/断网/崩溃恢复)
+- 📌 待办(低优先):main.cjs 后端错误提示仍是中文(很少触发),英文用户极端情况下会看到中文报错,可后续 i18n
 - ⚠️ 性能面板"CodeWhale 运行时 v未知"仅 dist 跑时显示,打包版正常,低优先
 - ⚠️ **环境铁律:只用 PowerShell,禁用 Bash/Linux 命令(head/grep/cat/管道等)**,否则会卡死。git/gh/npm 都用 PowerShell 跑。
 
