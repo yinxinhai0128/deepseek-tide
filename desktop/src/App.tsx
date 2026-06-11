@@ -73,10 +73,24 @@ type Thread = {
 
 const uid = () => crypto.randomUUID();
 
-// 讲解模式:只追加到发给引擎的提示(不污染界面里的用户气泡),
-// 让 AI 在改动文件后用面向小白的大白话小结改了啥、为什么;没改文件就正常回答,避免啰嗦。
-const EXPLAIN_SUFFIX =
-  "\n\n（附加要求:如果这次你改动了文件,请在回答最后用中文、面向不懂编程的人,用几句话小结你改了哪些文件、分别为什么改,以「📝 小结」开头;如果没有改动文件,就正常回答,无需小结。）";
+// ---- 轻量国际化(中/英) ----
+// currentLang 是模块级变量,App 在渲染最开始同步赋值,使模块级函数(如 toolLabel)也能翻译。
+const STORAGE_KEY_LANG = "deepseek-tide.desktop.lang.v1";
+type Lang = "zh" | "en";
+let currentLang: Lang = (() => {
+  try {
+    return localStorage.getItem(STORAGE_KEY_LANG) === "en" ? "en" : "zh";
+  } catch {
+    return "zh";
+  }
+})();
+const t = (zh: string, en: string) => (currentLang === "en" ? en : zh);
+
+// 讲解模式追加给引擎的指令(随语言切换),只加到发往引擎的提示、不污染用户气泡。
+const explainSuffix = () =>
+  currentLang === "en"
+    ? "\n\n(Extra: if you changed any files, end your reply with a short plain-English summary for a non-programmer of which files you changed and why, starting with “📝 Summary”. If you changed no files, just answer normally—no summary needed.)"
+    : "\n\n（附加要求:如果这次你改动了文件,请在回答最后用中文、面向不懂编程的人,用几句话小结你改了哪些文件、分别为什么改,以「📝 小结」开头;如果没有改动文件,就正常回答,无需小结。）";
 
 const STORAGE_KEY = "deepseek-tide.desktop.threads.v1";
 const LEGACY_STORAGE_KEY = "whaletide.desktop.threads.v1";
@@ -136,7 +150,7 @@ function threadsForStorage(threads: Thread[]): Thread[] {
 
 function shortPath(value: string) {
   const parts = value.split(/[\\/]/).filter(Boolean);
-  return parts.slice(-2).join(" / ") || "选择工作区";
+  return parts.slice(-2).join(" / ") || t("选择工作区", "Choose workspace");
 }
 
 function FileTree({
@@ -187,16 +201,16 @@ function FileTree({
 
 function toolLabel(name?: string) {
   const labels: Record<string, string> = {
-    list_dir: "查看目录",
-    read_file: "读取文件",
-    search_files: "搜索文件",
-    write_file: "写入文件",
-    edit_file: "编辑文件",
-    apply_patch: "应用补丁",
-    exec_shell: "运行命令",
-    run_command: "运行命令"
+    list_dir: t("查看目录", "List directory"),
+    read_file: t("读取文件", "Read file"),
+    search_files: t("搜索文件", "Search files"),
+    write_file: t("写入文件", "Write file"),
+    edit_file: t("编辑文件", "Edit file"),
+    apply_patch: t("应用补丁", "Apply patch"),
+    exec_shell: t("运行命令", "Run command"),
+    run_command: t("运行命令", "Run command")
   };
-  return labels[name || ""] || name?.replaceAll("_", " ") || "工具操作";
+  return labels[name || ""] || name?.replaceAll("_", " ") || t("工具操作", "Tool action");
 }
 
 function ToolActivity({ events }: { events: AgentEvent[] }) {
@@ -226,8 +240,8 @@ function ToolActivity({ events }: { events: AgentEvent[] }) {
     <details className="activity-card">
       <summary>
         <IconTerminal2 size={14} />
-        <span>执行过程</span>
-        <small>{visible.length} 项操作</small>
+        <span>{t("执行过程", "Activity")}</span>
+        <small>{t(`${visible.length} 项操作`, `${visible.length} ${visible.length === 1 ? "action" : "actions"}`)}</small>
         <IconChevronRight className="details-chevron" size={14} />
       </summary>
       <div className="activity-list">
@@ -245,8 +259,8 @@ function ToolActivity({ events }: { events: AgentEvent[] }) {
                   {event.type === "tool_use" || event.type === "tool_result"
                     ? toolLabel(event.name)
                     : event.type === "stderr"
-                      ? "运行日志"
-                      : "系统消息"}
+                      ? t("运行日志", "Run log")
+                      : t("系统消息", "System message")}
                 </strong>
                 {event.input && typeof event.input === "object" && "path" in event.input ? (
                   <code>{String((event.input as { path?: unknown }).path || "")}</code>
@@ -304,7 +318,7 @@ function ChatMessage({ message, isStreaming }: { message: Message; isStreaming?:
             <span />
           </div>
         ) : message.events?.length ? null : (
-          <div className="assistant-empty">（本轮没有文本回复）</div>
+          <div className="assistant-empty">{t("（本轮没有文本回复）", "(no text reply this turn)")}</div>
         )}
       </div>
     </article>
@@ -343,30 +357,33 @@ function ApiKeyDialog({
     try {
       const result = await window.whale.saveApiKey(key);
       if (!result.ok || !result.status?.authenticated) {
-        setError(result.error || "保存失败，请重试");
+        setError(result.error || t("保存失败，请重试", "Failed to save, please try again"));
         return;
       }
       const check = result.check;
       if (check?.valid === false) {
-        setError(check.error || "这个 API key 无效，请检查后重新粘贴。");
+        setError(check.error || t("这个 API key 无效，请检查后重新粘贴。", "This API key is invalid. Please check and paste again."));
         return;
       }
       onSaved(result.status);
       if (check?.valid === true && check.available === false) {
         setError(
-          `key 有效，但账户余额不足（${check.balance ?? 0} ${check.currency ?? ""}）。请先到 DeepSeek 充值，再发任务。`
+          t(
+            `key 有效，但账户余额不足（${check.balance ?? 0} ${check.currency ?? ""}）。请先到 DeepSeek 充值，再发任务。`,
+            `Key is valid, but the account balance is insufficient (${check.balance ?? 0} ${check.currency ?? ""}). Please top up at DeepSeek first.`
+          )
         );
         return;
       }
       const balanceText =
         check?.valid && check.balance != null
-          ? `，余额 ${check.balance} ${check.currency ?? ""}`
+          ? t(`，余额 ${check.balance} ${check.currency ?? ""}`, ` · balance ${check.balance} ${check.currency ?? ""}`)
           : "";
-      setSuccess(`✅ 连接成功${balanceText}`);
+      setSuccess(t(`✅ 连接成功${balanceText}`, `✅ Connected${balanceText}`));
       setKey("");
       window.setTimeout(onClose, 1400);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "保存失败，请重试");
+      setError(reason instanceof Error ? reason.message : t("保存失败，请重试", "Failed to save, please try again"));
     } finally {
       setSaving(false);
     }
@@ -378,21 +395,23 @@ function ApiKeyDialog({
         <div className="modal-heading">
           <div>
             <span className="eyebrow">DEEPSEEK CONNECTION</span>
-            <h2>连接你的 DeepSeek 账户</h2>
+            <h2>{t("连接你的 DeepSeek 账户", "Connect your DeepSeek account")}</h2>
           </div>
           <button type="button" className="icon-button" onClick={onClose}>
             <IconX size={18} />
           </button>
         </div>
         <p className="onboard-intro">
-          DeepSeek-Tide 需要一个 DeepSeek 的 <strong>API Key</strong> 才能干活。还没有的话，照下面 4
-          步几分钟就能搞定 👇
+          {t(
+            "DeepSeek-Tide 需要一个 DeepSeek 的 API Key 才能干活。还没有的话,照下面 4 步几分钟就能搞定 👇",
+            "DeepSeek-Tide needs a DeepSeek API Key to work. Don't have one? The 4 steps below take just a few minutes 👇"
+          )}
         </p>
         <ol className="onboard-steps">
           <li>
             <div className="onboard-step-text">
-              <strong>① 注册 / 登录 DeepSeek</strong>
-              <span>用手机号注册一个账号</span>
+              <strong>{t("① 注册 / 登录 DeepSeek", "① Sign up / sign in to DeepSeek")}</strong>
+              <span>{t("用手机号注册一个账号", "Create an account (email or phone)")}</span>
             </div>
             <button
               type="button"
@@ -401,28 +420,28 @@ function ApiKeyDialog({
                 void window.whale.openExternal("https://platform.deepseek.com/sign_in")
               }
             >
-              打开
+              {t("打开", "Open")}
               <IconExternalLink size={14} />
             </button>
           </li>
           <li>
             <div className="onboard-step-text">
-              <strong>② 实名认证 + 充值</strong>
-              <span>登录后在平台完成实名，左侧菜单充值（新账号必须充值才能用，最低 1 元）</span>
+              <strong>{t("② 实名认证 + 充值", "② Verify + top up")}</strong>
+              <span>{t("登录后在平台完成实名，左侧菜单充值（新账号必须充值才能用，最低 1 元）", "After signing in, top up in the console (new accounts must add a small balance to use the API)")}</span>
             </div>
             <button
               type="button"
               className="button secondary"
               onClick={() => void window.whale.openExternal("https://platform.deepseek.com")}
             >
-              打开
+              {t("打开", "Open")}
               <IconExternalLink size={14} />
             </button>
           </li>
           <li>
             <div className="onboard-step-text">
-              <strong>③ 创建 API Key</strong>
-              <span>点“创建”，复制生成的 key（只显示一次，务必复制好）</span>
+              <strong>{t("③ 创建 API Key", "③ Create an API Key")}</strong>
+              <span>{t("点“创建”，复制生成的 key（只显示一次，务必复制好）", "Click Create and copy the key (shown only once — be sure to copy it)")}</span>
             </div>
             <button
               type="button"
@@ -431,19 +450,22 @@ function ApiKeyDialog({
                 void window.whale.openExternal("https://platform.deepseek.com/api_keys")
               }
             >
-              打开
+              {t("打开", "Open")}
               <IconExternalLink size={14} />
             </button>
           </li>
           <li>
             <div className="onboard-step-text">
-              <strong>④ 粘贴到下面 → 保存</strong>
-              <span>把复制的 key 粘进输入框，点“保存并连接”</span>
+              <strong>{t("④ 粘贴到下面 → 保存", "④ Paste below → Save")}</strong>
+              <span>{t("把复制的 key 粘进输入框，点“保存并连接”", "Paste the key into the box and click “Save & connect”")}</span>
             </div>
           </li>
         </ol>
         <p className="onboard-security">
-          🔒 你的 key 只存在这台电脑（交给 CodeWhale 的本地凭证库），DeepSeek-Tide 绝不上传，也不写进项目或浏览器。
+          {t(
+            "🔒 你的 key 只存在这台电脑（交给 CodeWhale 的本地凭证库），DeepSeek-Tide 绝不上传，也不写进项目或浏览器。",
+            "🔒 Your key stays on this computer (in CodeWhale's local credential store). DeepSeek-Tide never uploads it or writes it into your project."
+          )}
         </p>
         <label className="field-label" htmlFor="api-key">
           API Key
@@ -465,11 +487,11 @@ function ApiKeyDialog({
         {success ? <div className="form-success">{success}</div> : null}
         <div className="modal-actions">
           <button type="button" className="button secondary" onClick={onClose}>
-            取消
+            {t("取消", "Cancel")}
           </button>
           <button className="button primary" disabled={!key.trim() || saving}>
             {saving ? <IconLoader2 className="spin" size={16} /> : null}
-            保存并连接
+            {t("保存并连接", "Save & connect")}
           </button>
         </div>
       </form>
@@ -490,6 +512,15 @@ export default function App() {
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [model, setModel] = useState("deepseek-v4-flash");
   const [mode, setMode] = useState("agent");
+  const [lang, setLang] = useState<Lang>(currentLang);
+  currentLang = lang; // 每次渲染同步给模块级,使 t() 在所有子组件/函数里都拿到当前语言
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_LANG, lang);
+    } catch {
+      /* 忽略 */
+    }
+  }, [lang]);
   const [running, setRunning] = useState(false);
   const [runtime, setRuntime] = useState<Awaited<ReturnType<typeof window.whale.getStatus>> | null>(
     null
@@ -649,7 +680,7 @@ export default function App() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(threadsForStorage(threads)));
     } catch {
-      setAttachmentError("本地会话存储空间不足；当前任务仍可继续，但部分历史无法持久化。");
+      setAttachmentError(t("本地会话存储空间不足；当前任务仍可继续，但部分历史无法持久化。", "Local storage is full; the current task can continue, but some history may not be saved."));
     }
   }, [threads]);
 
@@ -697,12 +728,15 @@ export default function App() {
 
   async function undoLastChange() {
     const confirmed = window.confirm(
-      "撤销 AI 上一次的改动？\n\n会把工作区文件还原到上一轮任务开始前的状态（不影响 node_modules 等大目录）。"
+      t(
+        "撤销 AI 上一次的改动？\n\n会把工作区文件还原到上一轮任务开始前的状态（不影响 node_modules 等大目录）。",
+        "Undo the AI's last changes?\n\nThis restores your workspace files to the state before the last task started (large folders like node_modules are unaffected)."
+      )
     );
     if (!confirmed) return;
     const result = await window.whale.undoLastChange();
     if (!result.ok) {
-      setAttachmentError(result.error || "撤销失败");
+      setAttachmentError(result.error || t("撤销失败", "Undo failed"));
       return;
     }
     const [nextFiles, status, diff, undo] = await Promise.all([
@@ -770,7 +804,7 @@ export default function App() {
   async function chooseAttachments() {
     const result = await window.whale.chooseAttachments();
     if (!result.ok) {
-      setAttachmentError(result.error || "无法添加附件");
+      setAttachmentError(result.error || t("无法添加附件", "Could not add attachment"));
       return;
     }
     addAttachments(result.attachments);
@@ -790,7 +824,7 @@ export default function App() {
     );
     const result = await window.whale.importAttachments(sources);
     if (!result.ok) {
-      setAttachmentError(result.error || "无法添加附件");
+      setAttachmentError(result.error || t("无法添加附件", "Could not add attachment"));
       return;
     }
     addAttachments(result.attachments);
@@ -848,7 +882,7 @@ export default function App() {
   function createThread(target = workspace) {
     const thread: Thread = {
       id: uid(),
-      title: "新任务",
+      title: t("新任务", "New task"),
       workspace: target,
       messages: [],
       updatedAt: Date.now()
@@ -967,7 +1001,10 @@ export default function App() {
   function removeProject(path: string) {
     setProjectMenuPath(null);
     const confirmed = window.confirm(
-      "从列表移除这个项目？\n\n会一并移除它下面的所有对话记录（不会删除磁盘上的文件夹）。"
+      t(
+        "从列表移除这个项目？\n\n会一并移除它下面的所有对话记录（不会删除磁盘上的文件夹）。",
+        "Remove this project from the list?\n\nThis also removes all chats under it (the folder on disk is NOT deleted)."
+      )
     );
     if (!confirmed) return;
     setProjects((current) => current.filter((project) => project.path !== path));
@@ -997,7 +1034,7 @@ export default function App() {
       const id = uid();
       thread = {
         id,
-        title: content.slice(0, 38) || attachments[0]?.name || "附件任务",
+        title: content.slice(0, 38) || attachments[0]?.name || t("附件任务", "Attachment task"),
         workspace,
         messages: [],
         updatedAt: Date.now()
@@ -1007,7 +1044,7 @@ export default function App() {
     const userMessage: Message = {
       id: uid(),
       role: "user",
-      content: content || "请查看附件。",
+      content: content || t("请查看附件。", "Please look at the attachment."),
       attachments,
       createdAt: Date.now()
     };
@@ -1023,7 +1060,7 @@ export default function App() {
       title:
         thread.messages.length
           ? thread.title
-          : content.slice(0, 38) || attachments[0]?.name || "附件任务",
+          : content.slice(0, 38) || attachments[0]?.name || t("附件任务", "Attachment task"),
       messages: [...thread.messages, userMessage, assistantMessage],
       updatedAt: Date.now()
     };
@@ -1036,18 +1073,18 @@ export default function App() {
     setRunning(true);
     activeRunThreadIdRef.current = thread.id;
     const attachmentContext = attachments.length
-      ? `\n\n附件：\n${attachments
+      ? `\n\n${t("附件：", "Attachments:")}\n${attachments
           .map(
             (attachment) =>
               attachment.isImage
                 ? `[Attached image: ${attachment.path}]`
                 : `- @${attachment.relativePath} (${attachment.mime}, ${attachment.name})`
           )
-          .join("\n")}\n请读取并结合这些附件完成任务。`
+          .join("\n")}\n${t("请读取并结合这些附件完成任务。", "Please read and use these attachments to complete the task.")}`
       : "";
     const result = await window.whale.startTurn({
       workspace,
-      prompt: `${content || "请查看并分析附件。"}${attachmentContext}${EXPLAIN_SUFFIX}`,
+      prompt: `${content || t("请查看并分析附件。", "Please review and analyze the attachment.")}${attachmentContext}${explainSuffix()}`,
       model,
       mode,
       sessionId: thread.sessionId
@@ -1062,7 +1099,7 @@ export default function App() {
                 ...item,
                 messages: item.messages.map((message, index) =>
                   index === item.messages.length - 1
-                    ? { ...message, content: result.error || "启动失败" }
+                    ? { ...message, content: result.error || t("启动失败", "Failed to start") }
                     : message
                 )
               }
@@ -1153,7 +1190,7 @@ export default function App() {
               }}
             >
               <IconPencil size={14} />
-              重命名
+              {t("重命名", "Rename")}
             </span>
             <span
               role="button"
@@ -1163,7 +1200,7 @@ export default function App() {
               }}
             >
               <IconPin size={14} />
-              {thread.pinned ? "取消置顶" : "置顶"}
+              {thread.pinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
             </span>
             <span
               role="button"
@@ -1173,7 +1210,7 @@ export default function App() {
               }}
             >
               <IconArchive size={14} />
-              归档
+              {t("归档", "Archive")}
             </span>
             <span
               className="danger"
@@ -1184,7 +1221,7 @@ export default function App() {
               }}
             >
               <IconTrash size={14} />
-              移除
+              {t("移除", "Remove")}
             </span>
           </div>
         ) : null}
@@ -1213,14 +1250,14 @@ export default function App() {
         <button
           className="new-chat-primary"
           onClick={() => createThread(defaultWorkspace || workspace)}
-          title="开始一个新对话(在「对话」区)"
+          title={t("开始一个新对话(在「对话」区)", "Start a new chat (in the Chats section)")}
         >
           <IconMessageCirclePlus size={17} />
-          新对话
+          {t("新对话", "New chat")}
         </button>
         <button className="new-thread-button" onClick={() => void addProject()}>
           <IconFolderPlus size={17} />
-          添加项目
+          {t("添加项目", "Add project")}
         </button>
         {searchOpen ? (
           <div className="sidebar-search">
@@ -1228,7 +1265,7 @@ export default function App() {
             <input
               ref={searchInputRef}
               value={search}
-              placeholder="搜索项目、对话标题或内容…"
+              placeholder={t("搜索项目、对话标题或内容…", "Search projects, chat titles or content…")}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
@@ -1238,7 +1275,7 @@ export default function App() {
               }}
             />
             {search ? (
-              <button className="icon-button" title="清除" onClick={() => setSearch("")}>
+              <button className="icon-button" title={t("清除", "Clear")} onClick={() => setSearch("")}>
                 <IconX size={13} />
               </button>
             ) : null}
@@ -1254,11 +1291,11 @@ export default function App() {
               size={12}
               className={clsx("project-chevron", !projectsOpen && !searchQuery && "collapsed")}
             />
-            <span>项目</span>
+            <span>{t("项目", "Projects")}</span>
             <span className="section-count">{projects.length}</span>
             <button
               className="icon-button section-search-toggle push-right"
-              title="搜索项目与对话 (Ctrl+F)"
+              title={t("搜索项目与对话 (Ctrl+F)", "Search projects & chats (Ctrl+F)")}
               onClick={(event) => {
                 event.stopPropagation();
                 setSearchOpen((open) => {
@@ -1336,7 +1373,7 @@ export default function App() {
                   <span
                     className="thread-menu-trigger"
                     role="button"
-                    title="在此项目下新建对话"
+                    title={t("在此项目下新建对话", "New chat in this project")}
                     onClick={(event) => {
                       event.stopPropagation();
                       void newChatInProject(project.path);
@@ -1367,7 +1404,7 @@ export default function App() {
                         }}
                       >
                         <IconFolderOpen size={14} />
-                        在资源管理器中打开
+                        {t("在资源管理器中打开", "Open in File Explorer")}
                       </span>
                       <span
                         role="button"
@@ -1377,7 +1414,7 @@ export default function App() {
                         }}
                       >
                         <IconPencil size={14} />
-                        重命名
+                        {t("重命名", "Rename")}
                       </span>
                       <span
                         role="button"
@@ -1387,7 +1424,7 @@ export default function App() {
                         }}
                       >
                         <IconPin size={14} />
-                        {project.pinned ? "取消置顶" : "置顶"}
+                        {project.pinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
                       </span>
                       <span
                         className="danger"
@@ -1398,7 +1435,7 @@ export default function App() {
                         }}
                       >
                         <IconTrash size={14} />
-                        移除项目
+                        {t("移除项目", "Remove project")}
                       </span>
                     </div>
                   ) : null}
@@ -1409,10 +1446,10 @@ export default function App() {
           })
             : null}
           {(projectsOpen || searchQuery) && searchQuery && !projectsToRender.length ? (
-            <div className="search-empty">没有匹配「{search.trim()}」的项目</div>
+            <div className="search-empty">{t(`没有匹配「${search.trim()}」的项目`, `No projects match “${search.trim()}”`)}</div>
           ) : null}
           {projectsOpen && !searchQuery && !projects.length ? (
-            <div className="search-empty">还没有项目 —— 点上面「添加项目」</div>
+            <div className="search-empty">{t("还没有项目 —— 点上面「添加项目」", "No projects yet — click “Add project” above")}</div>
           ) : null}
 
           <div
@@ -1424,7 +1461,7 @@ export default function App() {
               size={12}
               className={clsx("project-chevron", !chatsOpen && !searchQuery && "collapsed")}
             />
-            <span>对话</span>
+            <span>{t("对话", "Chats")}</span>
             <span className="section-count">{looseThreadsToRender.length}</span>
           </div>
           {chatsOpen || searchQuery
@@ -1432,7 +1469,7 @@ export default function App() {
             : null}
           {(chatsOpen || searchQuery) && !looseThreadsToRender.length ? (
             <div className="search-empty">
-              {searchQuery ? "没有匹配的对话" : "还没有对话 —— 点上面「新对话」开始"}
+              {searchQuery ? t("没有匹配的对话", "No chats match") : t("还没有对话 —— 点上面「新对话」开始", "No chats yet — click “New chat” above")}
             </div>
           ) : null}
           {archivedThreads.length ? (
@@ -1442,7 +1479,7 @@ export default function App() {
                 onClick={() => setArchivedOpen((open) => !open)}
               >
                 <IconArchive size={13} />
-                已归档（{archivedThreads.length}）
+                {t(`已归档（${archivedThreads.length}）`, `Archived (${archivedThreads.length})`)}
                 <IconChevronDown
                   size={13}
                   className={clsx("archived-chevron", archivedOpen && "open")}
@@ -1456,14 +1493,14 @@ export default function App() {
                       </span>
                       <span
                         role="button"
-                        title="取消归档"
+                        title={t("取消归档", "Unarchive")}
                         onClick={() => toggleArchive(thread.id)}
                       >
                         <IconArchiveOff size={14} />
                       </span>
                       <span
                         role="button"
-                        title="移除"
+                        title={t("移除", "Remove")}
                         onClick={() => deleteThread(thread.id)}
                       >
                         <IconTrash size={14} />
@@ -1477,10 +1514,17 @@ export default function App() {
         <div className="sidebar-footer">
           <button onClick={() => setSettingsOpen(true)}>
             <IconSettings size={17} />
-            设置
+            {t("设置", "Settings")}
+          </button>
+          <button
+            className="lang-toggle"
+            title={t("切换到英文界面", "切换到中文界面")}
+            onClick={() => setLang((current) => (current === "zh" ? "en" : "zh"))}
+          >
+            {lang === "zh" ? "EN" : "中"}
           </button>
           <div className={clsx("connection-dot", runtime?.authenticated && "online")} />
-          <span>{runtime?.authenticated ? "DeepSeek 已连接" : "需要登录"}</span>
+          <span>{runtime?.authenticated ? t("DeepSeek 已连接", "DeepSeek connected") : t("需要登录", "Sign in needed")}</span>
         </div>
       </aside>
 
@@ -1492,7 +1536,7 @@ export default function App() {
             </button>
           ) : null}
           <div className="topbar-title">
-            <strong>{activeThread?.title || "新的编码任务"}</strong>
+            <strong>{activeThread?.title || t("新的编码任务", "New coding task")}</strong>
             <span>{shortPath(workspace)}</span>
           </div>
           <div className="topbar-actions">
@@ -1502,20 +1546,20 @@ export default function App() {
                 setRightOpen(true);
                 setRightTab("performance");
               }}
-              title="查看累计花费与用量"
+              title={t("查看累计花费与用量", "View total cost & usage")}
             >
-              <span>累计</span>
+              <span>{t("累计", "Total")}</span>
               <strong>¥{(performance?.usage.totals.cost_cny ?? 0).toFixed(2)}</strong>
             </button>
-            <span className={clsx("mode-dot", mode)} title="安全等级:绿=只看不改 · 黄=改前问我 · 红=放手干" />
+            <span className={clsx("mode-dot", mode)} title={t("安全等级:绿=只看不改 · 黄=改前问我 · 红=放手干", "Safety level: green=Read-only · yellow=Ask first · red=Auto")} />
             <select
               value={mode}
               onChange={(event) => setMode(event.target.value)}
-              title="只看不改：只分析、绝不动你的文件；改前问我（推荐）：每次改文件或跑命令前征求你同意；放手干：在项目内自己动手、不打扰你"
+              title={t("只看不改：只分析、绝不动你的文件；改前问我（推荐）：每次改文件或跑命令前征求你同意；放手干：在项目内自己动手、不打扰你", "Read-only: analyze only, never touch files. Ask first (recommended): asks before each file change or command. Auto: works on its own inside the project.")}
             >
-              <option value="plan">只看不改</option>
-              <option value="agent">改前问我</option>
-              <option value="yolo">放手干</option>
+              <option value="plan">{t("只看不改", "Read-only")}</option>
+              <option value="agent">{t("改前问我", "Ask first")}</option>
+              <option value="yolo">{t("放手干", "Auto")}</option>
             </select>
             <select value={model} onChange={(event) => setModel(event.target.value)}>
               <option value="deepseek-v4-flash">V4 Flash</option>
@@ -1545,14 +1589,14 @@ export default function App() {
                   <IconWaveSine size={28} />
                 </div>
               </div>
-              <h1>让 DeepSeek 开始工作</h1>
-              <p>描述一个任务，DeepSeek-Tide 会读取项目、修改代码并验证结果。</p>
+              <h1>{t("让 DeepSeek 开始工作", "Put DeepSeek to work")}</h1>
+              <p>{t("描述一个任务，DeepSeek-Tide 会读取项目、修改代码并验证结果。", "Describe a task and DeepSeek-Tide will read your project, change the code, and verify the result.")}</p>
               <div className="suggestion-grid">
                 {[
-                  ["检查并修复", "运行测试，定位失败并完成修复"],
-                  ["理解代码库", "总结架构、关键模块与数据流"],
-                  ["实现新功能", "根据需求完成开发并添加测试"],
-                  ["代码审查", "检查当前变更中的风险和回归"]
+                  [t("检查并修复", "Check & fix"), t("运行测试，定位失败并完成修复", "Run the tests, find failures and fix them")],
+                  [t("理解代码库", "Understand the codebase"), t("总结架构、关键模块与数据流", "Summarize the architecture, key modules and data flow")],
+                  [t("实现新功能", "Build a feature"), t("根据需求完成开发并添加测试", "Implement the requirement and add tests")],
+                  [t("代码审查", "Code review"), t("检查当前变更中的风险和回归", "Review the current changes for risks and regressions")]
                 ].map(([title, text]) => (
                   <button key={title} onClick={() => setPrompt(text)}>
                     <IconSparkles size={15} />
@@ -1567,7 +1611,7 @@ export default function App() {
                 <div className="empty-recent">
                   <div className="empty-recent-head">
                     <IconHistory size={13} />
-                    最近的任务
+                    {t("最近的任务", "Recent tasks")}
                   </div>
                   <div className="empty-recent-list">
                     {recentThreads.map((thread) => (
@@ -1601,7 +1645,7 @@ export default function App() {
           )}
         </div>
         {showScrollButton ? (
-          <button className="scroll-bottom-button" onClick={scrollToBottom} title="回到底部">
+          <button className="scroll-bottom-button" onClick={scrollToBottom} title={t("回到底部", "Back to bottom")}>
             <IconArrowDown size={17} />
           </button>
         ) : null}
@@ -1640,7 +1684,7 @@ export default function App() {
                           current.filter((item) => item.id !== attachment.id)
                         )
                       }
-                      title="移除附件"
+                      title={t("移除附件", "Remove attachment")}
                     >
                       <IconX size={13} />
                     </button>
@@ -1653,7 +1697,7 @@ export default function App() {
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={handleComposerKey}
               onPaste={handlePaste}
-              placeholder={running ? "任务正在执行…" : "描述任务，或输入 / 查看命令"}
+              placeholder={running ? t("任务正在执行…", "Task running…") : t("描述任务，或输入 / 查看命令", "Describe a task, or type / for commands")}
               disabled={running}
               rows={1}
             />
@@ -1664,18 +1708,18 @@ export default function App() {
                   className="attach-button"
                   onClick={chooseAttachments}
                   disabled={running}
-                  title="添加文件或图片"
+                  title={t("添加文件或图片", "Attach a file or image")}
                 >
                   <IconPaperclip size={15} />
-                  添加附件
+                  {t("添加附件", "Attach")}
                 </button>
-                <span title="改这个用顶部的模式下拉框">
+                <span title={t("改这个用顶部的模式下拉框", "Change this with the mode dropdown at the top")}>
                   <IconCode size={14} />
                   {mode === "plan"
-                    ? "只看不改"
+                    ? t("只看不改", "Read-only")
                     : mode === "yolo"
-                      ? "放手干 · 不问你"
-                      : "改动前会问你"}
+                      ? t("放手干 · 不问你", "Auto · no prompts")
+                      : t("改动前会问你", "Asks before changes")}
                 </span>
               </div>
               {running ? (
@@ -1694,7 +1738,7 @@ export default function App() {
             </div>
           </div>
           {attachmentError ? <div className="attachment-error">{attachmentError}</div> : null}
-          <div className="composer-hint">Enter 发送 · Shift Enter 换行</div>
+          <div className="composer-hint">{t("Enter 发送 · Shift Enter 换行", "Enter to send · Shift+Enter for newline")}</div>
         </div>
       </main>
 
@@ -1705,7 +1749,7 @@ export default function App() {
             onClick={() => setRightTab("changes")}
           >
             <IconBrandGit size={15} />
-            变更
+            {t("变更", "Changes")}
             {changedFiles.length ? <span>{changedFiles.length}</span> : null}
           </button>
           <button
@@ -1713,14 +1757,14 @@ export default function App() {
             onClick={() => setRightTab("files")}
           >
             <IconFolder size={15} />
-            文件
+            {t("文件", "Files")}
           </button>
           <button
             className={rightTab === "performance" ? "active" : ""}
             onClick={() => setRightTab("performance")}
           >
             <IconGauge size={15} />
-            性能
+            {t("性能", "Usage")}
           </button>
           <button className="icon-button push-right" onClick={() => setRightOpen(false)}>
             <IconLayoutSidebarRightCollapse size={17} />
@@ -1735,23 +1779,23 @@ export default function App() {
           <div className="changes-panel">
             <div className="branch-row">
               <IconGitBranch size={15} />
-              <span>{gitStatus.split(/\r?\n/)[0]?.replace(/^##\s*/, "") || "未检测到 Git"}</span>
+              <span>{gitStatus.split(/\r?\n/)[0]?.replace(/^##\s*/, "") || t("未检测到 Git", "No Git detected")}</span>
             </div>
             {canUndo ? (
               <button
                 className="undo-button"
                 onClick={() => void undoLastChange()}
-                title="把工作区还原到上一轮 AI 改动之前"
+                title={t("把工作区还原到上一轮 AI 改动之前", "Restore the workspace to before the AI's last changes")}
               >
                 <IconArrowBackUp size={15} />
-                撤销 AI 上次改动
+                {t("撤销 AI 上次改动", "Undo AI's last changes")}
               </button>
             ) : null}
             {!changedFiles.length ? (
               <div className="panel-empty">
                 <IconBrandGit size={28} />
-                <strong>工作区没有变更</strong>
-                <span>代理修改的文件会显示在这里。</span>
+                <strong>{t("工作区没有变更", "No changes in workspace")}</strong>
+                <span>{t("代理修改的文件会显示在这里。", "Files the agent changes will show up here.")}</span>
               </div>
             ) : (
               <>
@@ -1772,37 +1816,40 @@ export default function App() {
             <div className="performance-heading">
               <div>
                 <span className="panel-caption">USAGE</span>
-                <strong>花费与用量</strong>
+                <strong>{t("花费与用量", "Cost & usage")}</strong>
               </div>
               <button className="icon-button" onClick={() => void refreshPerformance()}>
                 <IconRefresh size={16} />
               </button>
             </div>
             <div className="cost-score">
-              <span>累计花费 · 估算</span>
+              <span>{t("累计花费 · 估算", "Total cost · estimate")}</span>
               <strong>¥{(performance?.usage.totals.cost_cny ?? 0).toFixed(4)}</strong>
-              <small>按典型缓存命中（约 90%）估算，近似真实花费，非账单</small>
+              <small>{t("按典型缓存命中（约 90%）估算，近似真实花费，非账单", "Estimated assuming ~90% cache hits; approximate, not a bill")}</small>
               <button
                 className="reset-usage"
                 onClick={async () => {
                   const ok = window.confirm(
-                    "把累计花费和用量清零吗？\n\n只清这个统计数字，不影响你的对话、项目或账户余额。"
+                    t(
+                      "把累计花费和用量清零吗？\n\n只清这个统计数字，不影响你的对话、项目或账户余额。",
+                      "Reset the cumulative cost and usage counters?\n\nThis only clears the stats — your chats, projects and account balance are unaffected."
+                    )
                   );
                   if (!ok) return;
                   await window.whale.resetUsage();
                   await refreshPerformance();
                 }}
               >
-                清零累计
+                {t("清零累计", "Reset totals")}
               </button>
             </div>
             <div className="metric-grid">
               <div>
-                <span>完成轮次</span>
+                <span>{t("完成轮次", "Turns completed")}</span>
                 <strong>{performance?.usage.totals.turns || 0}</strong>
               </div>
               <div>
-                <span>Token 用量（输入 / 输出）</span>
+                <span>{t("Token 用量（输入 / 输出）", "Tokens (in / out)")}</span>
                 <strong>
                   {(performance?.usage.totals.input_tokens || 0).toLocaleString()} /{" "}
                   {(performance?.usage.totals.output_tokens || 0).toLocaleString()}
@@ -1811,9 +1858,9 @@ export default function App() {
             </div>
             <div className="runtime-update">
               <div>
-                <span>CodeWhale 运行时</span>
+                <span>{t("CodeWhale 运行时", "CodeWhale runtime")}</span>
                 <strong>
-                  v{updateState?.current || "未知"}
+                  v{updateState?.current || t("未知", "unknown")}
                   {updateState?.available ? ` → v${updateState.latest}` : ""}
                 </strong>
               </div>
@@ -1829,10 +1876,10 @@ export default function App() {
                 }}
               >
                 {updating ? <IconLoader2 className="spin" size={15} /> : <IconRefresh size={15} />}
-                {updateState?.available ? "立即更新" : "已是最新"}
+                {updateState?.available ? t("立即更新", "Update now") : t("已是最新", "Up to date")}
               </button>
               {updateState?.error ? (
-                <p className="update-note">暂时无法联网检查更新（网络受限），当前版本可正常使用。</p>
+                <p className="update-note">{t("暂时无法联网检查更新（网络受限），当前版本可正常使用。", "Can't check for updates right now (network limited); the current version works fine.")}</p>
               ) : null}
             </div>
           </div>
