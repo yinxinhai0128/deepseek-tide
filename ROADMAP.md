@@ -28,7 +28,7 @@
 - 发帖文案在本地 `docs/launch-posts.md`(已 gitignore,不进仓库)
 - ✅ 已给仓库加主题标签(deepseek/coding-agent/ai-agent/electron/desktop-app/llm/developer-tools/code-assistant/ai-tools/gui)
 - ⚠️ 新账号被各平台反垃圾拦截:HN Show HN 对新号限制(/showlim)、Reddit r/SideProject 受限、X 免费版仅 280 字(已备短推 219 字)→ 结论:新号需先养几天 karma 再发
-- 🔨 **进行中:给 `deepseek-ai/awesome-deepseek-integration` 提 PR**(无门槛、直达 DeepSeek 用户)。放 **Applications** 区,HTML 表格行格式。准备好的条目:
+- ✅ **已提交 PR 到 `deepseek-ai/awesome-deepseek-integration`**:https://github.com/deepseek-ai/awesome-deepseek-integration/pull/659(加入 Applications 区,等官方审核合并)。fork 克隆在临时目录 `%TEMP%\ds-pr`。条目内容:
   ```html
   <tr>
       <td><img src="https://raw.githubusercontent.com/yinxinhai0128/deepseek-tide/main/desktop/build/icon.png" alt="Icon" width="64" height="auto" /></td>
